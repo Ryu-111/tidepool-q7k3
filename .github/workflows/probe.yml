@@ -14,35 +14,41 @@ concurrency:
 
 jobs:
   python:
+    name: python
     runs-on: ubuntu-latest
     timeout-minutes: 5
     defaults:
       run:
         working-directory: probe
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Unit tests (no network, synthetic keys only)
         run: python -m unittest -v test_live_check.py test_emulator_key.py
 
   jvm-policy:
+    name: jvm-policy
     runs-on: ubuntu-latest
     timeout-minutes: 5
     defaults:
       run:
         working-directory: probe
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: "21"
       # Same compile and run steps as build.py, without the Android SDK.
       - name: Compile policy tests
         run: >
-          javac --release 8 -encoding UTF-8 -d build/tests
+          javac --release 8 -Xlint:-options -encoding UTF-8 -d build/tests
           src/dev/ryu/jevprobe/Policy.java
           src/dev/ryu/jevprobe/Profile.java
           test/dev/ryu/jevprobe/PolicyTest.java

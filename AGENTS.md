@@ -77,7 +77,8 @@ rtk proxy python3 ../scripts/build-chrome.py              # production build + Z
 
 ## Verification and reporting
 
-- CI (`.github/workflows/probe.yml`) runs the probe Python tests and JVM policy tests on push and PRs; `android/` and `clients/` are not covered.
+- `main` is protected: work on a branch and open a PR; squash-merge after the required checks pass (`python`, `jvm-policy`, `ruff`, `actionlint`, `gitleaks`, `dependency-review`, `codeql (*)`). The admin bypass is for emergencies and trivial doc fixes only.
+- CI covers this repository only (`.github/workflows/`); `android/` and `clients/` are not covered. Run `uvx ruff@0.16.10 check .` before pushing Python changes. Pin new actions to a commit SHA; Dependabot updates them weekly.
 - Test the changed behavior and its failure paths before calling it done. Kotlin (detekt, Gradle) is not covered by hooks; run it manually.
 - Keep these apart: unit test vs device E2E, LOCAL vs `JEV LIVE (no request)` vs a real Jev query, emulator vs physical device, localhost vs real HTTPS sites. State what is unverified.
 

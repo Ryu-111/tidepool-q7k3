@@ -29,7 +29,7 @@ def nodes():
     raise SystemExit("No fresh UI hierarchy available")
 
 def find(text, click=False, ensure_checked=False, scroll=False):
-    for attempt in range(4):
+    for _attempt in range(4):
         candidates = sorted(nodes(), key=lambda n: n.get("text", "").casefold() != text.casefold())
         for node in candidates:
             if text.casefold() in node.get("text", "").casefold():
