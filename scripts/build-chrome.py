@@ -28,7 +28,10 @@ def package():
     # Give this personal build its own identity, separate from the installed store extension.
     manifest["name"] = "Jev Autofill — personal development build"
     manifest["short_name"] = "Jev Autofill"
-    manifest.pop("key", None)
+    # A fixed public key pins the extension ID, so reloading from another folder (e.g. a CI ZIP)
+    # keeps chrome.storage.local (vault login, Jev key). Only the public half exists; it is not
+    # a secret, and unpacked loading needs no private key.
+    manifest["key"] = (ROOT / "scripts/chrome-extension-key.pub").read_text().strip()
     manifest.pop("update_url", None)
     manifest_file.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     dist = ROOT / "chrome-dist"
