@@ -51,7 +51,10 @@ def payload():
         "questions": {
             "f0": {
                 "type": "choice",
-                "instructions": "Choose the semantic kind for field 0 from the sanitized field table. Choose UNKNOWN if ambiguous.",
+                "instructions": (
+                    "Choose the semantic kind for field 0 from the sanitized field table. "
+                    "Choose UNKNOWN if ambiguous."
+                ),
                 "criteria": {"EMAIL": "EMAIL", "UNKNOWN": "UNKNOWN"},
             }
         },
