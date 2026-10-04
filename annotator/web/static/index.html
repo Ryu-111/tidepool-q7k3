@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jev Annotator</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script type="module" src="/static/main.js"></script>
+  </head>
+  <body>
+    <header class="top">
+      <h1>Jev Annotator</h1>
+      <span id="overall" class="overall"></span>
+      <label class="only-open"><input id="only-open" type="checkbox" /> 未完了のページだけ</label>
+      <span id="status" class="status" role="status" aria-live="polite"></span>
+    </header>
+    <nav id="sidebar" class="sidebar" aria-label="ページ一覧"></nav>
+    <main id="main" class="main"></main>
+    <aside class="picker" aria-label="種類の選択">
+      <p id="selection" class="selection"></p>
+      <input id="filter" class="filter" type="search" placeholder="種類を絞り込み（/）Enterで決定" autocomplete="off" />
+      <div id="kinds"></div>
+      <label class="unsure"><input id="unsure" type="checkbox" /> 自信なし（u）</label>
+      <textarea id="note" class="note" rows="2" maxlength="500" placeholder="メモ（n）。入力後 Tab で保存"></textarea>
+      <button id="clear" class="clear" type="button">答えを消す（x）</button>
+      <dl class="keys">
+        <dt>j / k</dt><dd>次 / 前の欄</dd>
+        <dt>/</dt><dd>種類を絞り込む → Enter で決定して次へ</dd>
+        <dt>o</dt><dd>対象外（OTHER）にして次へ</dd>
+        <dt>.</dt><dd>直前の欄と同じ種類にして次へ</dd>
+        <dt>u / n / x</dt><dd>自信なし / メモ / 消す</dd>
+        <dt>d</dt><dd>ページを完了にする</dd>
+        <dt>[ / ]</dt><dd>前 / 次のページ</dd>
+      </dl>
+    </aside>
+  </body>
+</html>
