@@ -1749,12 +1749,30 @@ index 0000000..fc44417
 +export { caption };
 diff --git a/apps/browser/src/autofill/jev/jev-page.spec.ts b/apps/browser/src/autofill/jev/jev-page.spec.ts
 new file mode 100644
-index 0000000..93b3452
+index 0000000..e44089d
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-page.spec.ts
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,419 @@
 +/** @jest-environment-options {"url":"https://profile.example/form"} */
-+import { jevPage } from "./jev-page";
++import { JevFeedbackRow, jevPage } from "./jev-page";
++
++// dispatchEvent always yields isTrusted === false; use jsdom's implementation to emulate a user.
++const change = (node: HTMLInputElement, value: string, trusted = true) => {
++  node.value = value;
++  type Impl = { isTrusted: boolean; _dispatch(event: Impl): void };
++  const impl = (wrapper: object) => {
++    const key = Object.getOwnPropertySymbols(wrapper).find((s) => String(s) === "Symbol(impl)");
++    return (wrapper as Record<symbol, Impl>)[key!];
++  };
++  const event = impl(new Event("change", { bubbles: true }));
++  event.isTrusted = trusted;
++  impl(node)._dispatch(event);
++};
++const flushWrites = async () => {
++  for (let i = 0; i < 30; i++) {
++    await Promise.resolve();
++  }
++};
 +
 +describe("Jev isolated page operations", () => {
 +  beforeEach(() => {
@@ -1788,6 +1806,7 @@ index 0000000..93b3452
 +  });
 +  afterEach(async () => {
 +    await jevPage({ action: "clear", url: location.href, token: "synthetic-nonce" });
++    (globalThis as { __jevFeedback?: () => void }).__jevFeedback?.();
 +    jest.restoreAllMocks();
 +  });
 +  const collect = () => jevPage({ action: "collect", url: location.href });
@@ -1884,27 +1903,18 @@ index 0000000..93b3452
 +    root.chrome = {
 +      storage: {
 +        local: {
++          get: jest.fn(async () => stored),
 +          set: jest.fn(async (items: Record<string, unknown>) => Object.assign(stored, items)),
 +        },
 +      },
 +    };
-+    const change = (node: HTMLInputElement, value: string, trusted: boolean) => {
-+      node.value = value;
-+      // dispatchEvent always yields isTrusted === false. Emulate a user event through jsdom's
-+      // implementation objects: mark the event trusted and dispatch it internally.
-+      type Impl = { isTrusted: boolean; _dispatch(event: Impl): void };
-+      const impl = (wrapper: object) => {
-+        const key = Object.getOwnPropertySymbols(wrapper).find((s) => String(s) === "Symbol(impl)");
-+        return (wrapper as Record<symbol, Impl>)[key!];
-+      };
-+      const event = impl(new Event("change", { bubbles: true }));
-+      event.isTrusted = trusted;
-+      impl(node)._dispatch(event);
-+    };
 +    // Every record lands in the same millisecond, as on a fast machine; keys must still differ.
 +    jest.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
 +    try {
++      document.body.insertAdjacentHTML("beforeend", '<input id="notes">');
 +      const snapshot = await collect();
++      const password = document.querySelector<HTMLInputElement>("#password")!;
++      const passwordListener = jest.spyOn(password, "addEventListener");
 +      await jevPage({
 +        action: "fill",
 +        url: location.href,
@@ -1914,29 +1924,200 @@ index 0000000..93b3452
 +          { id: 0, kind: "FAMILY", source: "local", confidence: null },
 +          { id: 1, kind: "UNKNOWN", source: "none", confidence: null },
 +          { id: 2, kind: "PASSWORD", source: "none", confidence: null },
++          { id: 3, kind: "UNKNOWN", source: "none", confidence: null },
 +        ],
 +      });
 +      const family = document.querySelector<HTMLInputElement>("#family")!;
 +      change(family, "widget", false); // A page script, not the user.
 +      change(family, "user-correction", true);
 +      change(document.querySelector<HTMLInputElement>("#password")!, "user-typed", true);
-+      await Promise.resolve();
++      change(document.querySelector<HTMLInputElement>("#notes")!, "user-notes", true);
++      await flushWrites();
 +      const records = Object.values(stored) as Record<string, unknown>[];
 +      const fill = records.find((r) => r.type === "fill") as { fields: { id: number }[] };
 +      // The pre-filled field (#existing) is not watched: it was neither written nor empty.
-+      expect(fill.fields.map((f) => f.id)).toEqual([0, 2]);
++      expect(fill.fields.map((f) => f.id)).toEqual([0, 3]);
++      expect(passwordListener).not.toHaveBeenCalled();
 +      expect(records.filter((r) => r.type === "edit").map((r) => [r.id, r.outcome])).toEqual([
 +        [0, "edited"],
-+        [2, "typed"],
++        [3, "typed"],
 +      ]);
 +      const json = JSON.stringify(stored);
-+      for (const value of ["試験", "widget", "user-correction", "user-typed", "keep", "/form"]) {
++      for (const value of [
++        "試験",
++        "widget",
++        "user-correction",
++        "user-typed",
++        "user-notes",
++        "keep",
++        "/form",
++      ]) {
 +        expect(json).not.toContain(value);
 +      }
 +      expect(json).toContain('"caption":"姓"');
 +    } finally {
 +      root.chrome = previous;
 +    }
++  });
++  describe("feedback safeguards", () => {
++    let stored: Record<string, unknown>;
++    let previousChrome: unknown;
++    const root = globalThis as { chrome?: unknown; __jevFeedback?: () => void };
++    const family = () => document.querySelector<HTMLInputElement>("#family")!;
++    const startFill = async () => {
++      const snapshot = await collect();
++      const pending = jevPage({
++        action: "fill",
++        url: location.href,
++        token: snapshot!.token,
++        entries: [{ id: 0, value: "synthetic-filled-value", overwrite: true }],
++        feedback: [{ id: 0, kind: "FAMILY", source: "local", confidence: null }],
++      });
++      await jest.advanceTimersByTimeAsync(1000);
++      await pending;
++      await flushWrites();
++    };
++    const edits = () =>
++      (Object.values(stored) as Record<string, unknown>[]).filter((r) => r.type === "edit");
++    beforeEach(() => {
++      jest.useFakeTimers();
++      stored = {};
++      previousChrome = root.chrome;
++      root.chrome = {
++        storage: {
++          local: {
++            get: jest.fn(async () => ({ ...stored })),
++            set: jest.fn(async (items: Record<string, unknown>) => Object.assign(stored, items)),
++          },
++        },
++      };
++    });
++    afterEach(() => {
++      root.__jevFeedback?.();
++      root.chrome = previousChrome;
++      history.replaceState(null, "", "/form");
++      jest.useRealTimers();
++    });
++    it("records collect-time descriptions before page handlers mirror filled values", async () => {
++      family().addEventListener("input", () => {
++        family().setAttribute("aria-label", family().value);
++        family().placeholder = family().value;
++        family().labels![0].prepend(document.createTextNode(family().value));
++      });
++      await startFill();
++      const record = (Object.values(stored) as Record<string, unknown>[]).find(
++        (r) => r.type === "fill",
++      ) as { fields: { field: { caption: string; ariaLabel: string; placeholder: string } }[] };
++      expect(record.fields[0].field.caption).toBe("姓");
++      expect(record.fields[0].field.ariaLabel).toBe("");
++      expect(record.fields[0].field.placeholder).toBe("");
++      expect(JSON.stringify(stored)).not.toContain("synthetic-filled-value");
++    });
++    it.each(["disabled", "cleared"])(
++      "stops existing writers when recording is %s",
++      async (action) => {
++        await startFill();
++        if (action === "disabled") {
++          stored["jev.feedbackEnabled"] = false;
++        } else {
++          stored = { "jev.feedbackGeneration": 1 };
++        }
++        change(family(), "synthetic-edit");
++        await flushWrites();
++        expect(edits()).toEqual([]);
++      },
++    );
++    it("checks settings again even for the initial fill record", async () => {
++      stored["jev.feedbackEnabled"] = false;
++      await startFill();
++      expect(Object.keys(stored).filter((k) => k.startsWith("jev.feedback."))).toEqual([]);
++    });
++    it.each(["disabled", "cleared"])(
++      "rechecks %s settings before the first write",
++      async (action) => {
++        const get = jest
++          .fn()
++          .mockResolvedValueOnce({ "jev.feedbackGeneration": 0 })
++          .mockResolvedValue(
++            action === "disabled"
++              ? { "jev.feedbackEnabled": false }
++              : { "jev.feedbackGeneration": 1 },
++          );
++        (root.chrome as { storage: { local: { get: typeof get } } }).storage.local.get = get;
++        await startFill();
++        expect(get).toHaveBeenCalledTimes(2);
++        expect(Object.keys(stored)).toEqual([]);
++      },
++    );
++    it("never revives an old fill after recording is disabled and enabled again", async () => {
++      await startFill();
++      stored["jev.feedbackGeneration"] = 1;
++      stored["jev.feedbackEnabled"] = true;
++      change(family(), "synthetic-edit");
++      await flushWrites();
++      expect(edits()).toEqual([]);
++    });
++    it("removes every listener after 30 minutes even without a change event", async () => {
++      const remove = jest.spyOn(family(), "removeEventListener");
++      await startFill();
++      await jest.advanceTimersByTimeAsync(30 * 60_000);
++      expect(remove).toHaveBeenCalledWith("change", expect.any(Function));
++      change(family(), "late-edit");
++      await flushWrites();
++      expect(edits()).toEqual([]);
++    });
++    it.each([true, false])(
++      "a new fill removes the previous listeners (feedback=%s)",
++      async (enabled) => {
++        const remove = jest.spyOn(family(), "removeEventListener");
++        await startFill();
++        // Each fill must have a different nonce, as in Chrome.
++        Object.defineProperty(crypto, "randomUUID", { value: () => "next-nonce" });
++        const snapshot = await collect();
++        const pending = jevPage({
++          action: "fill",
++          url: location.href,
++          token: snapshot!.token,
++          entries: [{ id: 0, value: "second-fill", overwrite: true }],
++          feedback: enabled
++            ? [{ id: 0, kind: "FAMILY", source: "local", confidence: null }]
++            : undefined,
++        });
++        await jest.advanceTimersByTimeAsync(1000);
++        await pending;
++        expect(remove).toHaveBeenCalledWith("change", expect.any(Function));
++        change(family(), "second-edit");
++        await flushWrites();
++        expect(edits()).toHaveLength(enabled ? 1 : 0);
++      },
++    );
++    it("removes all listeners on navigation and never resumes after navigating back", async () => {
++      document.body.insertAdjacentHTML("beforeend", '<input id="notes">');
++      const notes = document.querySelector<HTMLInputElement>("#notes")!;
++      const snapshot = await collect();
++      const pending = jevPage({
++        action: "fill",
++        url: location.href,
++        token: snapshot!.token,
++        entries: [{ id: 0, value: "synthetic-filled-value", overwrite: false }],
++        feedback: [0, 3].map((id): JevFeedbackRow => ({
++          id,
++          kind: "UNKNOWN",
++          source: "none",
++          confidence: null,
++        })),
++      });
++      await jest.advanceTimersByTimeAsync(1000);
++      await pending;
++      const remove = jest.spyOn(notes, "removeEventListener");
++      history.replaceState(null, "", "/other");
++      change(family(), "navigated-edit", false);
++      expect(remove).toHaveBeenCalledWith("change", expect.any(Function));
++      history.replaceState(null, "", "/form");
++      change(notes, "back-edit");
++      await flushWrites();
++      expect(edits()).toEqual([]);
++    });
 +  });
 +  it("rejects changed fields and consumes the approval", async () => {
 +    const snapshot = await collect();
@@ -1993,10 +2174,10 @@ index 0000000..93b3452
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-page.ts b/apps/browser/src/autofill/jev/jev-page.ts
 new file mode 100644
-index 0000000..ad12a2d
+index 0000000..2afc2d4
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-page.ts
-@@ -0,0 +1,357 @@
+@@ -0,0 +1,422 @@
 +export interface JevPageField {
 +  id: number;
 +  type: string;
@@ -2053,9 +2234,20 @@ index 0000000..ad12a2d
 +  request: JevPageRequest,
 +): JevPageResult | null | Promise<JevPageResult | null> {
 +  type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
-+  type Snapshot = { node: Control; signature: string; value: string };
++  type Snapshot = {
++    node: Control;
++    signature: string;
++    value: string;
++    field: ReturnType<typeof pageText>;
++  };
 +  type State = { token: string; url: string; expires: number; nodes: Snapshot[] };
-+  const root = globalThis as typeof globalThis & { __jevBulkFill?: State };
++  const root = globalThis as typeof globalThis & {
++    __jevBulkFill?: State;
++    __jevFeedback?: () => void;
++  };
++  if (request.action === "fill") {
++    root.__jevFeedback?.();
++  }
 +  if (request.action === "clear") {
 +    if (request.token === root.__jevBulkFill?.token) {
 +      delete root.__jevBulkFill;
@@ -2158,6 +2350,20 @@ index 0000000..ad12a2d
 +        : [],
 +    occupied: node.value !== "",
 +  });
++  const text = (value: string) => value.replace(/\s+/g, " ").trim().slice(0, 200);
++  const pageText = (d: JevPageField) => ({
++    type: d.type,
++    caption: text(d.caption),
++    ariaLabel: text(d.ariaLabel),
++    placeholder: text(d.placeholder),
++    name: text(d.name),
++    htmlId: text(d.htmlId),
++    context: text(d.context),
++    group: text(d.group),
++    autocomplete: text(d.autocomplete),
++    maxLength: d.maxLength,
++    options: d.options.slice(0, 20).map((o) => text(o.label)),
++  });
 +  const signature = (node: Control) =>
 +    JSON.stringify({
 +      ...describe(node, 0),
@@ -2194,11 +2400,17 @@ index 0000000..ad12a2d
 +    if (!nodes.length || nodes.length > 64) {
 +      return null;
 +    }
++    const fields = nodes.map(describe);
 +    const state: State = {
 +      token: crypto.randomUUID(),
 +      url: location.href,
 +      expires: Date.now() + 120_000,
-+      nodes: nodes.map((node) => ({ node, signature: signature(node), value: node.value })),
++      nodes: nodes.map((node, id) => ({
++        node,
++        signature: signature(node),
++        value: node.value,
++        field: pageText(fields[id]),
++      })),
 +    };
 +    root.__jevBulkFill = state;
 +    setTimeout(() => {
@@ -2209,7 +2421,7 @@ index 0000000..ad12a2d
 +    return {
 +      token: state.token,
 +      url: state.url,
-+      fields: nodes.map(describe),
++      fields,
 +      written: 0,
 +      changed: 0,
 +    };
@@ -2251,6 +2463,21 @@ index 0000000..ad12a2d
 +  if (!entries.every(valid)) {
 +    return null;
 +  }
++  const storage = (
++    globalThis as {
++      chrome?: {
++        storage?: {
++          local?: {
++            get(keys: string[]): Promise<Record<string, unknown>>;
++            set(items: Record<string, unknown>): Promise<void>;
++          };
++        };
++      };
++    }
++  ).chrome?.storage?.local;
++  const settingsKeys = ["jev.feedbackEnabled", "jev.feedbackGeneration"];
++  const initialSettings =
++    storage && request.feedback?.length ? storage.get(settingsKeys).catch((): null => null) : null;
 +  const written: typeof entries = [];
 +  for (const entry of entries) {
 +    // Page event handlers may alter subsequent fields. Do not overwrite those changes.
@@ -2272,59 +2499,77 @@ index 0000000..ad12a2d
 +  // Record how the user corrects the result: which fields they edit, clear or fill by hand.
 +  // Only the field's page text and the decided kind are kept, in the extension's own storage
 +  // (never a cookie or page storage, which the site could read); typed values are never stored.
-+  const storage = (
-+    globalThis as {
-+      chrome?: { storage?: { local?: { set(items: Record<string, unknown>): Promise<void> } } };
-+    }
-+  ).chrome?.storage?.local;
 +  const feedback = (request.feedback ?? []).filter(
 +    (row) =>
 +      state.nodes[row.id] &&
++      state.nodes[row.id].field.type.toLowerCase() !== "password" &&
++      state.nodes[row.id].node.type !== "password" &&
 +      (written.some((e) => e.id === row.id) || state.nodes[row.id].value === ""),
 +  );
-+  if (storage && feedback.length) {
++  if (storage && initialSettings !== null && feedback.length) {
 +    const fill = crypto.randomUUID();
 +    const until = Date.now() + 30 * 60_000;
++    // One registry entry owns every listener and the expiry timer for this fill.
++    const listeners: (() => void)[] = [];
++    let stopped = false;
++    const stop = () => {
++      stopped = true;
++      clearTimeout(timer);
++      for (const remove of listeners) {
++        remove();
++      }
++      if (root.__jevFeedback === stop) {
++        delete root.__jevFeedback;
++      }
++    };
++    const timer = setTimeout(stop, 30 * 60_000);
++    root.__jevFeedback = stop;
++    // Keep the fill before its edits, even when storage operations complete asynchronously.
++    let pending = Promise.resolve();
 +    // The fill id plus a zero-padded sequence keeps keys unique within one millisecond.
 +    let sequence = 0;
 +    const put = (record: Record<string, unknown>) => {
 +      const order = String(sequence++).padStart(6, "0");
 +      const key = `jev.feedback.${String(Date.now())}.${fill}.${order}`;
-+      storage.set({ [key]: { v: 1, fill, ...record } }).catch((): void => {});
-+    };
-+    const text = (value: string) => value.replace(/\s+/g, " ").trim().slice(0, 200);
-+    const pageText = (node: Control, id: number) => {
-+      const d = describe(node, id);
-+      return {
-+        type: d.type,
-+        caption: text(d.caption),
-+        ariaLabel: text(d.ariaLabel),
-+        placeholder: text(d.placeholder),
-+        name: text(d.name),
-+        htmlId: text(d.htmlId),
-+        context: text(d.context),
-+        group: text(d.group),
-+        autocomplete: text(d.autocomplete),
-+        maxLength: d.maxLength,
-+        options: d.options.slice(0, 20).map((o) => text(o.label)),
-+      };
++      pending = pending
++        .then(() => initialSettings)
++        .then((initial) => {
++          if (stopped || !initial || initial["jev.feedbackEnabled"] === false) {
++            stop();
++            return;
++          }
++          return storage.get(settingsKeys).then((current) => {
++            if (
++              stopped ||
++              Date.now() >= until ||
++              location.href !== state.url ||
++              current["jev.feedbackEnabled"] === false ||
++              (current["jev.feedbackGeneration"] ?? 0) !== (initial["jev.feedbackGeneration"] ?? 0)
++            ) {
++              stop();
++              return;
++            }
++            return storage.set({ [key]: { v: 1, fill, ...record } });
++          });
++        })
++        .catch(() => stop());
 +    };
 +    put({
 +      type: "fill",
 +      at: Date.now(),
-+      origin: location.origin,
++      origin: new URL(state.url).origin,
 +      fields: feedback.map((row) => ({
 +        ...row,
 +        filled: written.some((e) => e.id === row.id),
-+        field: pageText(state.nodes[row.id].node, row.id),
++        field: state.nodes[row.id].field,
 +      })),
 +    });
 +    for (const row of feedback) {
 +      const node = state.nodes[row.id].node;
 +      const expected = written.find((e) => e.id === row.id)?.value ?? "";
 +      const onChange = (event: Event) => {
-+        if (Date.now() > until || location.href !== state.url) {
-+          node.removeEventListener("change", onChange);
++        if (stopped || Date.now() >= until || location.href !== state.url) {
++          stop();
 +          return;
 +        }
 +        if (!event.isTrusted) {
@@ -2341,6 +2586,7 @@ index 0000000..ad12a2d
 +        put({ type: "edit", at: Date.now(), id: row.id, outcome });
 +      };
 +      node.addEventListener("change", onChange);
++      listeners.push(() => node.removeEventListener("change", onChange));
 +    }
 +  }
 +  // Detect delayed postcode widgets; report drift instead of silently writing again.
@@ -2356,7 +2602,7 @@ index 0000000..ad12a2d
 +}
 diff --git a/apps/browser/src/autofill/popup/jev/jev.component.html b/apps/browser/src/autofill/popup/jev/jev.component.html
 new file mode 100644
-index 0000000..78d7041
+index 0000000..64cc3b6
 --- /dev/null
 +++ b/apps/browser/src/autofill/popup/jev/jev.component.html
 @@ -0,0 +1,149 @@
@@ -2429,7 +2675,7 @@ index 0000000..78d7041
 +      }}）
 +    </summary>
 +    <p class="tw-text-sm tw-my-2">
-+      一括入力のあとに書き直した・消した・自分で埋めた欄を、判定の誤りとして記録します。記録するのは欄名などページ上の文字と判定した種類だけで、入力した値やページのパスは残しません。保存先はこの拡張の中だけです。
++      一括入力のあとに書き直した・消した・自分で埋めた欄を、判定の誤りとして記録します。記録するのは欄名などページ上の文字と判定した種類だけで、入力した値やページのパスは残しません。パスワード欄は対象外です。保存先はこの拡張の中だけです。
 +    </p>
 +    <label class="tw-flex tw-gap-2 tw-items-center">
 +      <input
@@ -2511,10 +2757,10 @@ index 0000000..78d7041
 +</main>
 diff --git a/apps/browser/src/autofill/popup/jev/jev.component.spec.ts b/apps/browser/src/autofill/popup/jev/jev.component.spec.ts
 new file mode 100644
-index 0000000..ecb3264
+index 0000000..979bfbd
 --- /dev/null
 +++ b/apps/browser/src/autofill/popup/jev/jev.component.spec.ts
-@@ -0,0 +1,271 @@
+@@ -0,0 +1,348 @@
 +import { ChangeDetectorRef } from "@angular/core";
 +import { mock } from "jest-mock-extended";
 +import { BehaviorSubject, of } from "rxjs";
@@ -2777,6 +3023,83 @@ index 0000000..ecb3264
 +      { label: "お名前", kind: "FAMILY", source: "jev", outcome: "edited" },
 +    ]);
 +  });
++  it("omits password rows from correction feedback", async () => {
++    execute.mockResolvedValueOnce({
++      token: "nonce",
++      url: tab.url,
++      fields: [pageField(0, "姓"), { ...pageField(1, "パスワード"), type: "password" }],
++      written: 0,
++      changed: 0,
++    });
++    await component.prepare();
++    component.state.rows[0].approved = true;
++    execute.mockClear();
++    await component.fill();
++    const request = execute.mock.calls.find((call) => call[2]?.[0]?.action === "fill")?.[2][0];
++    expect(request.feedback).toEqual([
++      { id: 0, kind: "FAMILY", source: "local", confidence: null },
++    ]);
++  });
++  it("displays only outcomes retained after pruning whole fills", async () => {
++    const records: Record<string, unknown> = {};
++    for (let i = 0; i < 1501; i++) {
++      records[`jev.feedback.${i + 1}.f${i}.0`] = {
++        v: 1,
++        fill: `f${i}`,
++        type: "fill",
++        fields: [
++          { id: 0, kind: "FAMILY", source: "local", filled: true, field: { caption: "姓" } },
++        ],
++      };
++      records[`jev.feedback.${i + 2000}.f${i}.1`] = {
++        v: 1,
++        fill: `f${i}`,
++        type: "edit",
++        id: 0,
++        outcome: "edited",
++      };
++    }
++    component.feedbackStore.all = jest.fn().mockResolvedValue(records);
++    component.feedbackStore.remove = jest.fn().mockResolvedValue(undefined);
++    await component.loadFeedback();
++    expect(component.feedbackStore.remove).toHaveBeenCalledWith([
++      "jev.feedback.1.f0.0",
++      "jev.feedback.2000.f0.1",
++    ]);
++    expect(component.state.feedback.stats?.fills).toBe(1500);
++    expect(component.state.feedback.stats?.bySource.local.edited).toBe(1500);
++  });
++  it("increments the generation before clearing records without removing the toggle", async () => {
++    const stored: Record<string, unknown> = {
++      "jev.feedbackGeneration": 7,
++      "jev.feedbackEnabled": true,
++      "jev.feedback.1.f.0": { v: 1, fill: "f", type: "fill", fields: [] },
++    };
++    const set = jest.spyOn(chrome.storage.local, "set").mockImplementation(async (items) => {
++      Object.assign(stored, items);
++    });
++    component.feedbackStore.all = jest.fn(async () => ({ ...stored }));
++    component.feedbackStore.remove = jest.fn(async (keys) => {
++      expect(stored["jev.feedbackGeneration"]).toBe(8);
++      for (const key of keys) {
++        delete stored[key];
++      }
++    });
++    await component.clearFeedback();
++    expect(set).toHaveBeenCalledWith({ "jev.feedbackGeneration": 8 });
++    expect(stored).toEqual({ "jev.feedbackGeneration": 8, "jev.feedbackEnabled": true });
++  });
++  it("disabling recording invalidates existing fills even if recording is enabled again", async () => {
++    const stored: Record<string, unknown> = { "jev.feedbackGeneration": 3 };
++    jest.spyOn(chrome.storage.local, "get").mockImplementation(async () => ({ ...stored }));
++    const set = jest.spyOn(chrome.storage.local, "set").mockImplementation(async (items) => {
++      Object.assign(stored, items);
++    });
++    await component.setFeedbackEnabled(false);
++    expect(set).toHaveBeenCalledWith({ "jev.feedbackEnabled": false, "jev.feedbackGeneration": 4 });
++    await component.setFeedbackEnabled(true);
++    expect(stored).toEqual({ "jev.feedbackEnabled": true, "jev.feedbackGeneration": 4 });
++  });
 +  it("rejects navigation after preparation", async () => {
 +    await component.prepare();
 +    component.state.rows[0].approved = true;
@@ -2788,10 +3111,10 @@ index 0000000..ecb3264
 +});
 diff --git a/apps/browser/src/autofill/popup/jev/jev.component.ts b/apps/browser/src/autofill/popup/jev/jev.component.ts
 new file mode 100644
-index 0000000..716c609
+index 0000000..6103adc
 --- /dev/null
 +++ b/apps/browser/src/autofill/popup/jev/jev.component.ts
-@@ -0,0 +1,566 @@
+@@ -0,0 +1,581 @@
 +import { CommonModule } from "@angular/common";
 +import {
 +  ChangeDetectionStrategy,
@@ -2819,6 +3142,7 @@ index 0000000..716c609
 +import { BrowserApi } from "../../../platform/browser/browser-api";
 +import {
 +  FEEDBACK_ENABLED_KEY,
++  FEEDBACK_GENERATION_KEY,
 +  feedbackKeys,
 +  fieldLabel,
 +  JevFeedbackStats,
@@ -2891,8 +3215,7 @@ index 0000000..716c609
 +    all: async (): Promise<Record<string, unknown>> => (await chrome.storage.local.get(null)) ?? {},
 +    remove: async (keys: string[]): Promise<void> =>
 +      keys.length ? chrome.storage.local.remove(keys) : undefined,
-+    setEnabled: async (enabled: boolean): Promise<void> =>
-+      chrome.storage.local.set({ [FEEDBACK_ENABLED_KEY]: enabled }),
++    set: async (items: Record<string, unknown>): Promise<void> => chrome.storage.local.set(items),
 +  };
 +  private readonly context = {
 +    userId: undefined as UserId | undefined,
@@ -3281,12 +3604,14 @@ index 0000000..716c609
 +          token: this.context.snapshot.token,
 +          entries,
 +          feedback: this.state.feedback.enabled
-+            ? this.state.rows.map((r) => ({
-+                id: r.field.id,
-+                kind: r.kind,
-+                source: r.source,
-+                confidence: this.context.jev[r.field.id]?.confidence ?? null,
-+              }))
++            ? this.state.rows
++                .filter((r) => r.field.type.toLowerCase() !== "password")
++                .map((r) => ({
++                  id: r.field.id,
++                  kind: r.kind,
++                  source: r.source,
++                  confidence: this.context.jev[r.field.id]?.confidence ?? null,
++                }))
 +            : undefined,
 +        },
 +      ]);
@@ -3306,7 +3631,11 @@ index 0000000..716c609
 +  async loadFeedback() {
 +    try {
 +      const items = await this.feedbackStore.all();
-+      await this.feedbackStore.remove(overflowKeys(items));
++      const removed = overflowKeys(items);
++      await this.feedbackStore.remove(removed);
++      for (const key of removed) {
++        delete items[key];
++      }
 +      const list = outcomes(items);
 +      this.state.feedback.enabled = items[FEEDBACK_ENABLED_KEY] !== false;
 +      this.state.feedback.stats = list.length ? stats(list) : null;
@@ -3328,7 +3657,12 @@ index 0000000..716c609
 +
 +  async setFeedbackEnabled(enabled: boolean) {
 +    this.state.feedback.enabled = enabled;
-+    await this.feedbackStore.setEnabled(enabled);
++    const settings: Record<string, unknown> = { [FEEDBACK_ENABLED_KEY]: enabled };
++    if (!enabled) {
++      const items = await this.feedbackStore.all();
++      settings[FEEDBACK_GENERATION_KEY] = (Number(items[FEEDBACK_GENERATION_KEY]) || 0) + 1;
++    }
++    await this.feedbackStore.set(settings);
 +    this.changeDetector.markForCheck();
 +  }
 +
@@ -3346,7 +3680,11 @@ index 0000000..716c609
 +  }
 +
 +  async clearFeedback() {
-+    await this.feedbackStore.remove(feedbackKeys(await this.feedbackStore.all()));
++    const items = await this.feedbackStore.all();
++    await this.feedbackStore.set({
++      [FEEDBACK_GENERATION_KEY]: (Number(items[FEEDBACK_GENERATION_KEY]) || 0) + 1,
++    });
++    await this.feedbackStore.remove(feedbackKeys(items));
 +    await this.loadFeedback();
 +  }
 +
@@ -3434,10 +3772,10 @@ index f4a9b76..3383af2 100644
          [title]="'unlockAdvancedSecurity' | i18n"
 diff --git a/apps/browser/src/autofill/jev/jev-feedback.spec.ts b/apps/browser/src/autofill/jev/jev-feedback.spec.ts
 new file mode 100644
-index 0000000..4b1622d
+index 0000000..4e421b1
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-feedback.spec.ts
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,137 @@
 +import {
 +  FEEDBACK_PREFIX,
 +  feedbackKeys,
@@ -3543,19 +3881,51 @@ index 0000000..4b1622d
 +    expect(overflowKeys(keys, 2)).toEqual([`${FEEDBACK_PREFIX}3.y`]);
 +    expect(overflowKeys(keys, 5)).toEqual([]);
 +  });
++  it("rejects password descriptors including their edit records", () => {
++    const password = row(0, "PASSWORD", "none", false);
++    password.field.type = "PASSWORD";
++    expect(
++      outcomes({
++        "jev.feedback.1.a": { v: 1, fill: "f", type: "fill", fields: [password] },
++        "jev.feedback.2.b": { v: 1, fill: "f", type: "edit", id: 0, outcome: "typed" },
++      }),
++    ).toEqual([]);
++  });
++  it("prunes whole fills including newer edits before retaining the next fill", () => {
++    const records = {
++      "jev.feedback.1.a.0": {
++        v: 1,
++        fill: "a",
++        type: "fill",
++        fields: [row(0, "FAMILY", "local", true)],
++      },
++      "jev.feedback.2.b.0": {
++        v: 1,
++        fill: "b",
++        type: "fill",
++        fields: [row(0, "FAMILY", "local", true)],
++      },
++      "jev.feedback.3.b.1": { v: 1, fill: "b", type: "edit", id: 0, outcome: "edited" },
++      "jev.feedback.4.a.1": { v: 1, fill: "a", type: "edit", id: 0, outcome: "cleared" },
++    };
++    expect(overflowKeys(records, 3)).toEqual(["jev.feedback.1.a.0", "jev.feedback.4.a.1"]);
++    expect(overflowKeys(records, 1)).toEqual(Object.keys(records).sort());
++    expect(overflowKeys(records, 0)).toHaveLength(4);
++  });
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-feedback.ts b/apps/browser/src/autofill/jev/jev-feedback.ts
 new file mode 100644
-index 0000000..3c5ef17
+index 0000000..e83530e
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-feedback.ts
-@@ -0,0 +1,176 @@
+@@ -0,0 +1,201 @@
 +// Reads the correction records jevPage writes to chrome.storage.local after a fill, and turns
 +// them into one outcome per field: kept, edited, cleared, or typed (left empty, filled by hand).
 +// Records hold the field's page text and the decided kind, never what the user typed.
 +
 +export const FEEDBACK_PREFIX = "jev.feedback.";
 +export const FEEDBACK_ENABLED_KEY = "jev.feedbackEnabled";
++export const FEEDBACK_GENERATION_KEY = "jev.feedbackGeneration";
 +/** Records kept; older ones are dropped when the popup opens. */
 +export const FEEDBACK_LIMIT = 3000;
 +
@@ -3605,7 +3975,7 @@ index 0000000..3c5ef17
 +const str = (value: unknown): string => (typeof value === "string" ? value.slice(0, 200) : "");
 +
 +function pageField(value: unknown): JevFeedbackField | null {
-+  if (!isRecord(value)) {
++  if (!isRecord(value) || str(value.type).toLowerCase() === "password") {
 +    return null;
 +  }
 +  return {
@@ -3634,7 +4004,31 @@ index 0000000..3c5ef17
 +/** Keys to remove so that at most [limit] records remain. */
 +export function overflowKeys(items: Record<string, unknown>, limit = FEEDBACK_LIMIT): string[] {
 +  const keys = feedbackKeys(items);
-+  return keys.slice(0, Math.max(0, keys.length - limit));
++  const fills = new Map<string, { keys: string[]; first: string; fillKey?: string }>();
++  for (const key of keys) {
++    const record = items[key];
++    const id = isRecord(record) && typeof record.fill === "string" ? record.fill : key;
++    const group = fills.get(id) ?? { keys: [], first: key };
++    group.keys.push(key);
++    if (isRecord(record) && record.type === "fill") {
++      group.fillKey ??= key;
++    }
++    fills.set(id, group);
++  }
++  const order = new Map(keys.map((key, index) => [key, index]));
++  const groups = [...fills.values()].sort(
++    (a, b) => order.get(a.fillKey ?? a.first)! - order.get(b.fillKey ?? b.first)!,
++  );
++  const removed = new Set<string>();
++  let remaining = keys.length;
++  for (const group of groups) {
++    if (remaining <= limit) {
++      break;
++    }
++    group.keys.forEach((key) => removed.add(key));
++    remaining -= group.keys.length;
++  }
++  return keys.filter((key) => removed.has(key));
 +}
 +
 +function fillOutcomes(record: Record<string, unknown>, fill: string): JevFieldOutcome[] {
