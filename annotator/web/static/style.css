@@ -301,6 +301,13 @@ textarea {
   font-size: 12px;
 }
 
+.recorded {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .placeholder {
   font-size: 12px;
 }

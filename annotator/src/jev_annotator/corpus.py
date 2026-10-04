@@ -21,6 +21,16 @@ class CorpusError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class Recorded:
+    """The extension's value-free decision and the user's subsequent action."""
+
+    kind: str
+    source: str
+    confidence: float | None
+    outcome: str
+
+
+@dataclass(frozen=True, slots=True)
 class Field:
     """One fillable control.
 
@@ -46,6 +56,7 @@ class Field:
     required: bool
     options: tuple[str, ...]
     fingerprint: str
+    recorded: Recorded | None = None
 
 
 @dataclass(frozen=True, slots=True)

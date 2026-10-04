@@ -16,6 +16,16 @@ uv run jev-annotator                 # opens http://127.0.0.1:8790/
 Options: `--corpus <dir>` (default `../probe/corpus`), `--pages <list>` (default
 `eval/usable.txt`), `--labels <file>`, `serve --port <n> --no-browser`.
 
+Add Chrome extension correction exports with `--feedback <file.json>` before the subcommand:
+
+```sh
+uv run jev-annotator --feedback corrections.json
+```
+
+Each fill appears as a `feedback/<fill>` page, with the recorded decision and subsequent user
+action shown beside each field. Labels use the same store as corpus labels. The corpus is still
+required. Only version 1 exports are accepted; malformed outcomes are skipped and counted.
+
 ## Labelling
 
 Each fillable control (hidden, button, checkbox and radio controls are left out, as in
@@ -39,10 +49,13 @@ A label whose field changed after re-collection is flagged "欄が変更され�
 ```sh
 uv run jev-annotator report ../probe/corpus/eval/all-before.tsv   # CorpusEval (probe Policy)
 uv run jev-annotator report <jev-eval output>.tsv                 # columns local / jev / final
+uv run jev-annotator report-feedback corrections.json           # recorded extension decisions
 ```
 
 Counts `correct`, `wrong` (another profile value would be filled), `missed` (left empty) and
 `spurious` (a non-profile field filled). Unsure labels are excluded.
+`report-feedback` also lists labelled fields and differing decisions for each user action
+(`kept`, `edited`, `cleared`, `typed`); an edit need not mean a classification error.
 
 ## Checks
 

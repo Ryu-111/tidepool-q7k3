@@ -8,8 +8,9 @@ import webbrowser
 from pathlib import Path
 from typing import Final
 
-from jev_annotator.corpus import CorpusError, load_corpus
-from jev_annotator.report import ReportError, render, score
+from jev_annotator.corpus import CorpusError, Page, load_corpus
+from jev_annotator.feedback import FeedbackError, load_feedback
+from jev_annotator.report import ReportError, render, render_feedback, score, score_feedback
 from jev_annotator.server import serve, static_files
 from jev_annotator.store import LabelStore, StoreError
 
@@ -55,12 +56,15 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="label file (default: <corpus>/labels/labels.json, kept out of Git)",
     )
+    parser.add_argument("--feedback", type=Path, help="add fills from a correction export JSON")
     commands = parser.add_subparsers(dest="command")
     serve_command = commands.add_parser("serve", help="run the annotation UI (default)")
     serve_command.add_argument("--port", type=int, default=8790)
     serve_command.add_argument("--no-browser", action="store_true")
     report_command = commands.add_parser("report", help="score a prediction TSV")
     report_command.add_argument("predictions", type=Path)
+    feedback_command = commands.add_parser("report-feedback", help="score a correction export JSON")
+    feedback_command.add_argument("export", type=Path)
     return parser
 
 
@@ -69,7 +73,7 @@ def _serve(args: argparse.Namespace, corpus: Path, store: LabelStore) -> int:
     if "main.js" not in files:
         sys.stderr.write("web/dist/main.js is missing: run `npm run build` in annotator/web\n")
         return 1
-    pages = load_corpus(corpus, _page_list(args, corpus))
+    pages = _pages(args, corpus)
     port: int = getattr(args, "port", 8790)
     server = serve(pages, store, files, port)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
@@ -93,6 +97,20 @@ def _page_list(args: argparse.Namespace, corpus: Path) -> Path | None:
     return usable if usable.is_file() else None
 
 
+def _feedback_pages(path: Path) -> dict[str, Page]:
+    feedback = load_feedback(path)
+    sys.stderr.write(f"feedback: {feedback.skipped} malformed outcomes skipped\n")
+    return feedback.pages
+
+
+def _pages(args: argparse.Namespace, corpus: Path) -> dict[str, Page]:
+    pages = load_corpus(corpus, _page_list(args, corpus))
+    feedback: Path | None = args.feedback
+    if feedback is not None:
+        pages.update(_feedback_pages(feedback))
+    return pages
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point; returns the process exit code."""
     args = _parser().parse_args(argv)
@@ -102,12 +120,17 @@ def main(argv: list[str] | None = None) -> int:
         store = LabelStore(labels)
         if args.command == "report":
             predictions: Path = args.predictions
-            pages = load_corpus(corpus, _page_list(args, corpus))
+            pages = _pages(args, corpus)
             lines = predictions.read_text(encoding="utf-8").splitlines()
             sys.stdout.write(render(score(pages, store.labels(), lines)))
             return 0
+        if args.command == "report-feedback":
+            export: Path = args.export
+            pages = _feedback_pages(export)
+            sys.stdout.write(render_feedback(score_feedback(pages, store.labels())))
+            return 0
         return _serve(args, corpus, store)
-    except (CorpusError, StoreError, ReportError, OSError) as error:
+    except (CorpusError, StoreError, ReportError, FeedbackError, OSError) as error:
         sys.stderr.write(f"jev-annotator: {error}\n")
         return 1
 

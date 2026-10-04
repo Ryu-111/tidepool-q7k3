@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
@@ -56,6 +56,7 @@ def _field_json(field: Field, label: Label | None) -> Json:
         "required": field.required,
         "options": list(field.options),
         "answer": _label_json(label, field),
+        "recorded": asdict(field.recorded) if field.recorded is not None else None,
     }
 
 

@@ -1,6 +1,6 @@
 // Rendering of the three panes. Functions here build nodes from data and report clicks through
 // callbacks; they hold no state.
-import type { Answer, Field, Kind, PageDetail, PageSummary } from "./api.js";
+import type { Answer, Field, Kind, PageDetail, PageSummary, Recorded } from "./api.js";
 import { el } from "./dom.js";
 
 export interface Row {
@@ -132,6 +132,19 @@ function answerBadge(answer: Answer | null, kinds: ReadonlyMap<string, Kind>): H
   );
 }
 
+function recordedLine(recorded: Recorded | null): HTMLElement | null {
+  if (recorded === null) {
+    return null;
+  }
+  const sources = { local: "ローカル", jev: "Jev", none: "判定なし" };
+  const outcomes = { kept: "変更なし", edited: "書き直し", cleared: "消去", typed: "自分で入力" };
+  const confidence = recorded.confidence === null ? "" : ` ${recorded.confidence.toFixed(2)}`;
+  return el("div", {
+    className: "recorded",
+    text: `記録: ${recorded.kind}（${sources[recorded.source]}${confidence}）→ ${outcomes[recorded.outcome]}`,
+  });
+}
+
 export function renderRow(
   row: Row,
   kinds: ReadonlyMap<string, Kind>,
@@ -152,7 +165,7 @@ export function renderRow(
       el("span", { className: `type type-${field.type}`, text: field.type }),
       field.required ? el("span", { className: "required", text: "必須" }) : null,
     ),
-    evidence(field),
+    el("div", {}, evidence(field), recordedLine(field.recorded)),
     answerBadge(field.answer, kinds),
   );
 }

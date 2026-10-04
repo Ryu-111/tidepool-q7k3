@@ -50,7 +50,15 @@ export interface Field {
   readonly pattern: string;
   readonly required: boolean;
   readonly options: readonly string[];
+  readonly recorded: Recorded | null;
   answer: Answer | null;
+}
+
+export interface Recorded {
+  readonly kind: string;
+  readonly source: "local" | "jev" | "none";
+  readonly confidence: number | null;
+  readonly outcome: "kept" | "edited" | "cleared" | "typed";
 }
 
 export interface Form {

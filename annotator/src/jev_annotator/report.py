@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 from jev_annotator.corpus import SKIPPED_TYPES
+from jev_annotator.feedback import OUTCOMES
 from jev_annotator.kinds import OTHER, UNKNOWN, mask_of
 from jev_annotator.store import Label, field_key
 
@@ -152,3 +153,37 @@ def render(scores: Mapping[str, Score], top: int = 15) -> str:
         )
     lines.append(f"(label {OTHER} matches prediction {UNKNOWN}; unsure labels are excluded)")
     return "\n".join(lines) + "\n"
+
+
+def score_feedback(
+    pages: Mapping[str, Page],
+    labels: Mapping[str, Label],
+) -> dict[str, Score]:
+    """Score recorded decisions by user action; unsure and unlabelled fields are excluded."""
+    scores = {outcome: Score() for outcome in OUTCOMES}
+    for page in pages.values():
+        for form in page.forms:
+            for control in form.fields:
+                label = labels.get(field_key(page.key, form.number, control.index))
+                recorded = control.recorded
+                if recorded is not None and label is not None and not label.unsure:
+                    scores[recorded.outcome].add(label.kind, recorded.kind)
+    return scores
+
+
+def render_feedback(scores: Mapping[str, Score]) -> str:
+    """Overall score plus labelled and differing decisions for each user action."""
+    overall = Score()
+    for result in scores.values():
+        overall.correct += result.correct
+        overall.wrong += result.wrong
+        overall.missed += result.missed
+        overall.spurious += result.spurious
+        overall.confusions.update(result.confusions)
+    summary = render({"recorded": overall} if overall.total else {})
+    lines = ["[outcomes] labelled / different"]
+    lines.extend(
+        f"  {outcome:<9}{result.total:>6} / {result.total - result.correct}"
+        for outcome, result in scores.items()
+    )
+    return summary + "\n".join(lines) + "\n"
