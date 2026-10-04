@@ -6,10 +6,11 @@ import os
 import shutil
 from pathlib import Path
 import subprocess
+import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CLIENTS = ROOT / "clients"
+CLIENTS = Path(os.environ.get("JEV_CLIENTS_DIR") or ROOT / "clients")
 RUNTIME = ROOT / ".tools/node-v24.17.0-darwin-arm64/bin"
 
 
@@ -32,6 +33,10 @@ def package():
             if path.is_file():
                 z.write(path, path.relative_to(build))
     # Chrome loads the unpacked copy in chrome-dist; refresh it so a reload picks up this build.
+    if "--zip-only" in sys.argv[1:]:
+        print("Archive:", archive)
+        print("SHA256:", hashlib.sha256(archive.read_bytes()).hexdigest())
+        return
     unpacked = dist / "jev-autofill-chrome"
     if unpacked.exists():
         shutil.rmtree(unpacked)
@@ -53,6 +58,8 @@ if __name__ == "__main__":
     # Normal hosted-account selection must remain available in this personal development build.
     if json.loads(config.read_text()).get("devFlags", {}).get("managedEnvironment") is not None:
         raise SystemExit("Local config forces a managed server; inspect it before building.")
-    subprocess.run(["rtk", "proxy", "npm", "run", "build:chrome", "--workspace", "@bitwarden/browser",
+    # Local shells route commands through rtk; CI runners do not have it.
+    runner = ["rtk", "proxy"] if shutil.which("rtk") else []
+    subprocess.run([*runner, "npm", "run", "build:chrome", "--workspace", "@bitwarden/browser",
                     "--", "--stats", "errors-only"], cwd=CLIENTS, env=env, check=True)
     package()

@@ -1,0 +1,96 @@
+name: chrome
+
+# Builds the personal Chrome extension from upstream bitwarden/clients plus clients-patch/jev.patch.
+# Every run uploads the ZIP as an artifact; a `chrome-v*` tag also publishes it as a GitHub Release.
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["chrome-v*"]
+  pull_request:
+    paths:
+      - clients-patch/**
+      - probe/fixture/patterns/**
+      - scripts/build-chrome.py
+      - .github/workflows/chrome.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read the upstream commit
+        id: upstream
+        run: |
+          sha="$(tr -d '[:space:]' < clients-patch/UPSTREAM)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "UPSTREAM must be a full SHA"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bitwarden/clients
+          ref: ${{ steps.upstream.outputs.sha }}
+          path: clients
+          persist-credentials: false
+      - name: Apply the Jev patch
+        working-directory: clients
+        run: git apply --whitespace=nowarn ../clients-patch/jev.patch
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: clients/.nvmrc
+          cache: npm
+          cache-dependency-path: clients/package-lock.json
+      - name: Install dependencies
+        working-directory: clients
+        run: npm ci --no-audit --no-fund
+      - name: Jev unit tests
+        working-directory: clients
+        run: >
+          npx jest --config apps/browser/jest.config.js --runInBand
+          apps/browser/src/autofill/jev apps/browser/src/autofill/popup/jev
+      - name: Jev lint
+        working-directory: clients
+        run: npx eslint apps/browser/src/autofill/jev apps/browser/src/autofill/popup/jev
+      - name: Type check
+        working-directory: clients
+        run: npx tsc --noEmit -p apps/browser/tsconfig.json
+      - name: Build the extension (production)
+        run: python3 scripts/build-chrome.py --zip-only
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jev-autofill-chrome
+          path: chrome-dist/jev-autofill-chrome.zip
+          retention-days: 30
+          if-no-files-found: error
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/chrome-v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: jev-autofill-chrome
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: >
+          gh release create "$TAG" jev-autofill-chrome.zip
+          --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+          --notes "Unpacked personal build; load it from chrome://extensions in developer mode."
