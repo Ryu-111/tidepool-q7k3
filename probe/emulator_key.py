@@ -11,7 +11,7 @@ def main():
     port = None
     try:
         if adb("shell", "getprop", "ro.hardware").strip() != "ranchu":
-            raise CheckError("検証用エミュレーター以外には転送しません。")
+            raise CheckError("Refusing to send to anything but the test emulator.")
         key = read_key()
         name = None
         for _ in range(3):
@@ -23,19 +23,19 @@ def main():
             if name:
                 break
         if not name:
-            raise CheckError("検証アプリの受信待機完了を確認できませんでした。未送信です。")
+            raise CheckError("Could not confirm the probe app is listening. Nothing was sent.")
         port = int(adb("forward", "tcp:0", "localabstract:" + name).strip())
         with socket.create_connection(("127.0.0.1", port), timeout=5) as stream:
             stream.sendall(key.encode("ascii") + b"\n")
             with stream.makefile("rb") as response:
                 if response.readline(4) != b"OK\n":
-                    raise CheckError("エミュレーターがキーを受信できませんでした。")
-        print("PASS: エミュレーターのメモリへキーを転送しました。値の表示・保存はしていません。")
+                    raise CheckError("The emulator did not receive the key.")
+        print("PASS: key sent to emulator memory. The value was neither shown nor saved.")
     except CheckError as error:
         print(str(error), file=sys.stderr)
         return 1
     except Exception:
-        print("キー転送失敗。アプリで受信待機を開始してください。", file=sys.stderr)
+        print("Key transfer failed. Start listening in the app first.", file=sys.stderr)
         return 1
     finally:
         if port is not None:

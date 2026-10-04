@@ -1,121 +1,86 @@
-# Android成立性の検証用APK
+# Android verification probe
 
-**製品版ではありません。Bitwardenとの接続・暗号化保管・同期は未実装です。**
-承認された計画の最初の関門である、Androidのフォーム取得とまとめて入力する処理を、実際の秘密情報なしで検証します。
+**Not a product.** A standalone APK (Android SDK only, no Bitwarden) that checks form capture, bulk fill and Jev calls on Android with synthetic data. The classification and formatting rules here were later ported to `android/` and `clients/`.
 
-## ビルド
+## Build
 
 ```sh
 rtk proxy python3 build.py
 ```
 
-Android SDK Platform 34 / Build Tools 36.0.0 とJDK 21を使用します。依存のダウンロードはありません。
-`ANDROID_HOME`、`JAVA_HOME`で既存のインストール先を指定できます。出力は `.build/jev-probe.apk`。
-署名はこの試作専用のdebug鍵であり、製品の署名には使用しません。
+Needs Android SDK Platform 34, Build Tools 36.0.0 and JDK 21 (`ANDROID_HOME` / `JAVA_HOME` override the defaults). No downloads. Output: `.build/jev-probe.apk`, signed with a probe-only debug key. The build also runs the JVM policy tests (`test/dev/ryu/jevprobe/PolicyTest.java`).
 
-## 動作確認
+## Manual check
 
-1. 検証用端末へAPKをインストールし、「自動入力サービスを選択」でJev検証用を選びます。
-2. 「同梱のダミーフォームを開く」→「自動入力候補を表示」→「Jev 検証」を選びます。
-3. 「ローカル判定で確認」でFAMILY / GIVEN / POSTAL / STREET / PASSWORDだけ選び、「確認してダミー情報を一括入力」と進みます。既存メール欄は選択しません。OSによって追加の候補選択が表示されます。
-4. 「入力結果を検証」でPASSを確認します。これはネイティブの試験であり、Chrome対応の証明ではありません。
-5. Chrome 135以降ではChrome設定でも外部の自動入力サービスを選び、以下のローカルフォームで同じ試験を行います。
+1. Install the APK and pick it under "自動入力サービスを選択" (select autofill service).
+2. "同梱のダミーフォームを開く" (open bundled form) → "自動入力候補を表示" (show suggestions) → "Jev 検証".
+3. Choose "ローカル判定で確認" (local classification), select FAMILY / GIVEN / POSTAL / STREET / PASSWORD only (not the prefilled email), then "確認してダミー情報を一括入力".
+4. "入力結果を検証" (verify) should show PASS. This is a native-form check, not proof of Chrome support.
+5. For Chrome 135+, also select the external autofill service in Chrome settings and serve the web fixtures:
 
 ```sh
 rtk proxy python3 -m http.server 8765 --bind 127.0.0.1 --directory fixture
-rtk proxy /Users/ryu/Library/Android/sdk/platform-tools/adb reverse tcp:8765 tcp:8765
+rtk proxy adb reverse tcp:8765 tcp:8765
 ```
 
-APKの「Chromeのダミーフォームを開く」で `http://localhost:8765/` を開きます。
-試作はAndroidが報告する `com.android.chrome` / `http` / `localhost` と同梱Activityに限定しています。
-一般のサイトでは何も入力しません。これはダミー試験専用の制限であり、製品のHTTPSオリジン検証を代用しません。
+The probe only fills `com.android.chrome` / `http` / `localhost` and its own activity. This is a test-only restriction and is not a substitute for the product's HTTPS origin checks.
 
-## Jevの実通信
+## Live Jev calls
 
-接続先は `https://openrouter.ai/api/v1/systemone`、モデルは `jev-latest` です。OpenRouterの[公式System One互換API](https://openrouter.ai/docs/guides/community/typesafe-sdk)を使うため、OpenRouterのAPIキーでJevを呼びます。TypeSafe直接契約のキーは使いません。確認日: 2026-09-26。
+Endpoint `https://openrouter.ai/api/v1/systemone`, model `jev-latest`, authenticated with an OpenRouter key ([OpenRouter System One API](https://openrouter.ai/docs/guides/community/typesafe-sdk)).
 
-### Macからの接続確認
-
-`/Users/ryu/development/jev-autofill/.env` に次の1行を設定してください。`=`の右側にAPIキーを貼り付け、引用符は付けません。
-
-```dotenv
-OPENROUTER_API_KEY=
-```
-
-このファイルはGit管理外で、権限は600（所有者のみ読み書き）です。開発用のAPIキーを保持する平文ファイルであり、ログイン用パスワードは入れません。キー本体をソース・チャット・シェルコマンドへ貼らないでください。
+**From the Mac**: put exactly one line `OPENROUTER_API_KEY=<key>` (no quotes) in the root `.env`, mode 600, owned by you. Never paste the key into source, chat or shell commands. Then:
 
 ```sh
-rtk proxy python3 /Users/ryu/development/jev-autofill/probe/live_check.py
+rtk proxy python3 probe/live_check.py
 ```
 
-合成した欄情報だけを公式APIへ1回送信します。APIキーと応答本文は出力せず、成功・失敗だけを表示します。ファイルの権限・所有者・リンクを検証し、リダイレクトも拒否します。このMac用ファイルはAPKへ埋め込みません。
+It sends one synthetic field, validates the reply, and prints only PASS/FAIL. It checks file mode, owner and links and rejects redirects.
 
-### Androidでの接続確認
+**On Android**: enter a key on the main screen to keep it in memory for five minutes (never on disk, backup or logs). On the emulator, the key can be handed over from `.env` through a 30-second adb socket with a random name; only the adb UID is accepted and the option is hidden on physical devices.
 
-メイン画面へ自分のOpenRouter APIキーを入力し、5分間だけメモリに設定できます。ディスク・バックアップ・ログには保存しません。
-キーをチャットやシェルコマンドに貼らないでください。設定後、承認画面で「Jevで判定する」を明示的に選ぶと1回通信します。
-確認画面は `LOCAL` / `JEV LIVE` を区別し、APIエラーを成功へ置き換えません。
+```sh
+PROBE_SERIAL=emulator-5556 PROBE_LIVE=1 rtk proxy python3 smoke.py   # add PROBE_CHROME=1 for the web form
+```
 
-専用エミュレーターでは `PROBE_SERIAL=emulator-5556 PROBE_LIVE=1 rtk proxy python3 smoke.py` で同梱フォームの実通信試験を実行できます。Chrome設定とローカルWebサーバーを準備した場合は、さらに `PROBE_CHROME=1` を指定してWebフォームを対象にできます。
+Request rules: value-free field types only; labels are mapped to a fixed vocabulary (known notes such as "（必須）" are stripped first) and unknown text is dropped; password fields are classified on-device and never listed; only fields the local rules cannot decide (two or more candidates) are asked; replies are validated (field IDs, choices, probability distribution) and unknown or low-confidence answers stay unfilled.
 
-Macの `.env` から、明示的に開く30秒限定のadbソケットを通してメモリへ渡します。待ち受け名は毎回ランダムに生成し、アプリが確保してからUIに表示します。Mac側は検証アプリのUIで準備完了を確認した場合だけ接続します。キーをコマンド引数・クリップボード・端末ファイルへ書き込みません。受信側はエミュレーターのadbプロセスのUIDだけを許可し、実機にはこの機能を表示しません。試験終了時はアプリを停止してキーを破棄します。この経路は検証専用で、製品へは組み込みません。
+## Fill patterns
 
-- 入力値のない型だけから要求JSONを生成します。ラベルは許可語彙へ変換し、未知の文字列を捨てます（「（必須）」「【半角数字】」などの既知の注記だけを除いてから照合）。
-- ローカル判定を優先し、ローカルで決まらず候補が2つ以上ある欄だけをJevへ照会します。照会対象がなければ通信しません。確認画面では Jev で決めた欄に［Jev］を付けます。
-- パスワードの判定は端末のみで行い、パスワード欄そのものもモデルの表から除外します。
-- 応答の項目ID、選択肢、確率分布、型を検証します。不明・低確信度は未入力にします。
-- 接続先は公式APIに固定し、リダイレクト禁止・タイムアウト・応答サイズ上限を設定しています。
-- キーの期限切れは新規要求を停止します。すでに実行中の要求のJavaメモリを確実に消去する保証はありません。
+`src/dev/ryu/jevprobe/Policy.java` decides field kinds; `Profile.java` formats values on-device.
 
-## 入力パターン
+- A kind is a set of address parts: region, municipality, ward, town, chome, ban, go, building. Parts handled by another field in the same form are removed from combined fields (e.g. with a region field, "住所" becomes `ADDRESS_AFTER_REGION`).
+- Consecutive same-kind fields matching the number of parts are treated as split fields: postal 3+4, phone ×3, family/given name, kana ×2, municipality/ward, chome/ban/go, year/month/day. Mismatched counts and email confirmation fields are not split.
+- Birth date: single field in several notations (`1990/04/05`, `19900405`, `1990年4月5日`, Japanese era), `type=date`, or year/month/day selects; separate era selects are supported. Gender and country: select or text (Chrome does not pass radio buttons). Age is computed on-device.
+- Company, department and job title (text or select).
+- Format (hyphens, full/half width, hiragana/katakana/half-width kana, name separators, `1丁目2番3号` style) comes from the label, placeholder and maxlength. Values that do not fit maxlength are not filled.
+- Prefecture selects are matched against option text on-device; options are never sent to the model.
+- Chrome's own hints (`ua-autofill-hints`) are used only when the page gives no hint of its own, because Chrome tends to mark the field before a password as `USERNAME`.
 
-`src/dev/ryu/jevprobe/Policy.java` が欄の種類を、`Profile.java` が端末内での書式を決めます。
+Synthetic pages live in `fixture/patterns/`:
 
-- 種類は「含む要素」の組み合わせで表します。住所の要素は、都道府県・市郡・区町村・町名・丁目・番・号・建物の8つです。例: `ADDRESS_FULL` は全要素、`REGION_CITY` は都道府県＋市区町村、`TOWN_CHOME` は町名＋丁目、`BAN_GO` は番＋号。
-- 同じフォームにある別の欄が受け持つ要素は、まとまった欄から除きます。例: 都道府県欄があれば「住所」欄は `ADDRESS_AFTER_REGION`、市欄があれば `AFTER_MUNICIPALITY`、町名・丁目欄があれば「番地」欄は `BAN_GO`。
-- 同じ種類の欄が、要素数と同じだけ連続していれば分割欄とみなします。郵便番号×2 → 前3桁／後4桁、電話×3 → 3分割、氏名×2 → 姓／名、フリガナ×2 → セイ／メイ、市区町村×2 → 市／区、番地×3 → 丁目／番／号、生年月日×3 → 年／月／日です。電話×2のように数が合わない場合や、メール×2（確認用）は分割しません。
-- 生年月日: 既定は「1990/04/05」形式。例示に合わせて「1990-04-05」「19900405」「1990年4月5日」「平成2年4月5日」（和暦）にします。`type=date` はネイティブの日付値で入れます。年月日のselectは「1990年（平成2年）」「平成2」「04」「5日」などの選択肢を数値で照合します。日付欄を一律に誕生日とはみなしません。
-- 性別・国: select またはテキスト欄に入れます。性別のラジオボタンはChromeが自動入力へ渡さないため入力できません（Android 17 / Chrome 145で確認）。年齢は生年月日から端末で計算します。
-- 番地の表記: 既定は「1-2-3」。例示に「丁目」「番」があれば「1丁目2番3号」にします。町名＋丁目のみの欄は「検証町1丁目」とします。
-- 和暦の元号欄: 元号を別欄で選ぶフォーム（[元号][年][月][日]）では、年の欄に元号内の年（平成2 → 「2」「2年」、元年にも対応）を入れます。同じラベルの4欄も元号・年・月・日に分けます。
-- 勤務先: 会社名・部署名・役職（テキスト／select）。`title` のような汎用の名前は件名・敬称と区別できないため使いません。
-- Jevへの照会: ローカルで決まらない欄だけを尋ね、フォーム全体の値なしの欄表（種類・候補・ローカルで決まった種類）を文脈として渡します。
-- 郵便番号から住所を補完するページ: 一括入力の後にページのスクリプトが住所欄を書き換える場合があります。確認画面では警告を表示し、「郵便番号以外を再入力」を用意しました（詳細は下の制約）。
-- 書式はラベル・プレースホルダー・maxlengthから端末内で決めます。ハイフンの有無、全角／半角、ふりがな（ひらがな）／フリガナ（カタカナ）／半角カナ、氏名の区切り（全角・半角スペース／なし）に対応します。例: 「例）100-0001」、「ハイフンなし」、「山田　太郎」、「やまだ たろう」。`type=number` の欄にはハイフンを入れません。
-- maxlengthに収まらない値は切り詰めず、入力しません。確認画面で「形式・文字数が合わないため入力しない」と表示します。氏名だけは区切りを除けば収まる場合に詰めます。
-- 都道府県の `<select>` は、端末内で選択肢の文字と照合して選びます（「東京都」「東京」のどちらでも可）。選択肢はモデルに送りません。
-- Chromeが独自に推定したヒント（`ua-autofill-hints` など）は、ページ自身の手掛かり（name・id・label・placeholder・autocomplete＝`HTML_TYPE_*`）がない欄にだけ使います。Chromeはパスワード欄の直前の欄を `USERNAME` と推定することがあるためです。
-
-合成フォームは `fixture/patterns/` にあります。
-
-| ページ | 内容 |
-|---|---|
-| `split.html` | 姓／名、セイ／メイ、郵便番号3+4、都道府県select、市区町村、番地、建物、電話3分割 |
-| `combined.html` | 氏名1欄（全角スペース）、ふりがな1欄（ひらがな）、郵便番号（ハイフンあり）、住所1欄、電話（ハイフンなし）、メール＋確認用 |
-| `mixed.html` | 同じラベルの分割欄（氏名・フリガナ・郵便番号）、都道府県と分かれた住所、プレースホルダーから判断する電話番号のハイフン |
-| `profile.html` | 生年月日select×3（和暦併記）、性別ラジオ（入力しないことを確認）、年齢、国select、都道府県select、市／区、町名、丁目／番／号、建物 |
-| `variants.html` | 生年月日8桁、性別select、都道府県・市区町村1欄、町名・丁目、番地・号、建物、`type=date`、和暦の生年月日 |
-| `era.html` | 氏名1欄、元号select＋年select（元年〜64年）＋月日、会社名、部署名、役職select |
-| `ambiguous.html` | name（建物）とラベル（番地）が食い違う欄。Jevに照会され、番地か未入力なら合格 |
-| `autozip.html` / `autozipkey.html` | 郵便番号の `input` / `keyup` で住所を補完するページ（既知の衝突の再現用。現状FAIL） |
+| Page | Contents |
+| --- | --- |
+| `split.html` | Split name/kana, postal 3+4, prefecture select, phone ×3 |
+| `combined.html` | Single name/kana/address fields, phone without hyphens, email + confirmation |
+| `mixed.html` | Same-label split fields, address split from prefecture, phone format from placeholder |
+| `profile.html` | Birth date selects, gender radio (must stay empty), age, country, municipality/ward/town/chome/ban/go |
+| `variants.html` | 8-digit birth date, gender select, combined region/city, `type=date`, era date |
+| `era.html` | Era + year selects, company, department, job title select |
+| `ambiguous.html` | Name and label disagree; passes if filled as street or left empty |
+| `autozip.html` / `autozipkey.html` | Postal-code autocompletion (reproduces the known conflict; currently FAIL) |
 
 ```sh
 PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 PROBE_PAGE=patterns/split.html rtk proxy python3 smoke.py
 PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 PROBE_PAGE=patterns/combined.html PROBE_FOCUS=お名前 rtk proxy python3 smoke.py
-PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 PROBE_PAGE=patterns/mixed.html PROBE_FOCUS=都道府県 rtk proxy python3 smoke.py
-PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 PROBE_PAGE=patterns/profile.html PROBE_FOCUS=市・郡 rtk proxy python3 smoke.py
-PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 PROBE_PAGE=patterns/variants.html PROBE_FOCUS=都道府県・市区町村 rtk proxy python3 smoke.py
 ```
 
-`PROBE_FOCUS` は最初にタップする `<label>` の文字です（既定は「姓」）。selectを包むラベルはネイティブの選択画面を開くため、テキスト欄のラベルを指定します。パターンページでは、入力可能な欄をすべて承認します。
+`PROBE_FOCUS` is the `<label>` text tapped first (default "姓"); use a text field, since a label wrapping a select opens the native picker. The dummy profile (Yokohama test address, 1990-04-05, etc.) is defined in `Profile.java` and is not real personal data.
 
-ダミーのプロフィールは `Profile.java` の定数（神奈川県横浜市中区検証町1-2-3 ダミービル101、1990-04-05、女性、日本など）です。実在の個人情報ではありません。
+## Limits
 
-## 制約
-
-試作が扱うのはテキスト欄、select、ネイティブの日付欄です（ラジオボタンはChromeが渡さないため対象外）。
-
-郵便番号から住所を補完するページとは衝突します。Chromeは自動入力時にinput・keyイベントも発火するため、`keyup` だけに反応するウィジェットでも動きます。約0.3秒後に住所欄を「市区町村＋町名」で上書きし、番地が消えます。Androidの自動入力は一度に全欄を入れるため、1回の操作では防げません。「郵便番号以外を再入力」は2回目の候補表示が必要です。手動では1回表示されましたが、自動試験（`PROBE_REFILL=1`）では再現しませんでした。Chrome拡張ではDOMを直接扱えるため、入力後の再確認と再入力で対処できます。動的変更時の再取得、正しい最上位HTTPSオリジン／ポート／iframeの照合、実保管庫の解錠、実機Chromeによる確認は本実装の前提です。
-実入力試験で、Androidが入力済みの値を伏せるケースを確認しました。値なしを空欄とみなすと上書きするため、空欄と確認できない欄は初期状態で選択せず、項目ごとの明示選択を必須にしています。完全自動で「空欄だけ入力」を保証できたわけではありません。
-試作の承認は60秒で失効し、新しい自動入力要求でも無効になります。ただし承認画面表示中のページ内部変更を完全に検出するものではありません。
-本番の自動入力サービスを置き換えて常用しないでください。試験後は元のサービスへ戻すかアンインストールします。
+- Text fields, selects and native date fields only.
+- Postal-code widgets rewrite the address about 0.3 s after the fill (Chrome also fires input/key events). Android fills all fields at once, so one pass cannot avoid it; "郵便番号以外を再入力" needs a second suggestion that did not appear reliably in automated runs.
+- Android may hide existing values, so fields not known to be empty are not preselected; each needs explicit selection.
+- Approval expires after 60 s or on a new autofill request.
+- Do not keep the probe as your daily autofill service; restore the original service afterwards.

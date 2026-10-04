@@ -21,25 +21,25 @@ def read_key(path=KEY_FILE):
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
-        raise CheckError("APIキーファイルを開けません。") from None
+        raise CheckError("Cannot open the API key file.") from None
     with os.fdopen(fd, "rb") as stream:
         info = os.fstat(stream.fileno())
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
                 or info.st_mode & 0o077 or info.st_nlink != 1 or info.st_size > 8192):
-            raise CheckError(".envは自分が所有する通常ファイル・権限600で用意してください。")
+            raise CheckError(".env must be a regular file you own with mode 600.")
         raw = stream.read(8193)
     try:
         content = raw.decode("utf-8")
     except UnicodeError:
-        raise CheckError(".envの形式が不正です。") from None
+        raise CheckError(".env has an invalid format.") from None
     lines = [line.strip() for line in content.splitlines() if line.strip() and not line.lstrip().startswith("#")]
     if len(lines) != 1 or not lines[0].startswith("OPENROUTER_API_KEY="):
-        raise CheckError(".envにはOPENROUTER_API_KEY=の1行だけ設定してください。")
+        raise CheckError(".env must contain exactly one OPENROUTER_API_KEY= line.")
     key = lines[0].partition("=")[2].strip()
     if not key:
-        raise CheckError("APIキーは未設定です。.envの=の右側に貼り付けてください。")
+        raise CheckError("API key is not set. Paste it after the = in .env.")
     if len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key) or any(c in key for c in "\"'"):
-        raise CheckError("APIキーは引用符・空白なしの1行で設定してください。")
+        raise CheckError("API key must be one line without quotes or spaces.")
     return key
 
 
@@ -79,14 +79,14 @@ def validate(body):
         if probabilities[answer["choice"]] < max(probabilities.values()):
             raise ValueError()
         if answer["choice"] != "EMAIL" or confidence < .90:
-            raise CheckError("API応答は受信しましたが、ダミー判定の合格条件を満たしませんでした。")
+            raise CheckError("API replied, but the synthetic classification did not meet the pass condition.")
     except (KeyError, TypeError, ValueError, OverflowError):
-        raise CheckError("API応答の形式・選択肢・確率の検証に失敗しました。") from None
+        raise CheckError("API response failed format, choice or probability validation.") from None
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise CheckError("APIのリダイレクトを拒否しました。")
+        raise CheckError("Rejected an API redirect.")
 
 
 def check():
@@ -99,16 +99,16 @@ def check():
     try:
         with opener.open(request, timeout=15) as response:
             if response.status != 200:
-                raise CheckError("APIが成功応答を返しませんでした。")
+                raise CheckError("API did not return a success response.")
             body = response.read(65537)
         if len(body) > 65536:
-            raise CheckError("API応答のサイズ上限を超えました。")
+            raise CheckError("API response exceeded the size limit.")
         validate(body)
     except urllib.error.HTTPError as error:
-        raise CheckError(f"API接続失敗（HTTP {error.code}）。認証・利用枠を確認してください。") from None
+        raise CheckError(f"API request failed (HTTP {error.code}). Check authentication and quota.") from None
     except (urllib.error.URLError, OSError, TimeoutError):
-        raise CheckError("API接続失敗（ネットワーク／TLS／タイムアウト）。") from None
-    print("PASS: Jev実通信・合成した欄情報の分類。キーと応答本文は表示・保存していません。")
+        raise CheckError("API request failed (network, TLS or timeout).") from None
+    print("PASS: live Jev call classified a synthetic field. The key and response body were neither shown nor saved.")
 
 
 if __name__ == "__main__":
