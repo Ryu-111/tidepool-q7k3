@@ -10,12 +10,16 @@
   <body>
     <header class="top">
       <h1>Jev Annotator</h1>
+      <button id="sidebar-toggle" class="done-toggle" type="button" aria-controls="sidebar" aria-expanded="true">ページ一覧を隠す</button>
       <span id="overall" class="overall"></span>
       <label class="only-open"><input id="only-open" type="checkbox" /> 未完了のページだけ</label>
       <span id="status" class="status" role="status" aria-live="polite"></span>
     </header>
     <nav id="sidebar" class="sidebar" aria-label="ページ一覧"></nav>
-    <main id="main" class="main"></main>
+    <div id="workspace" class="workspace">
+      <main id="main" class="main" tabindex="-1"></main>
+      <aside id="preview" class="preview" aria-label="フォームのプレビュー" hidden></aside>
+    </div>
     <aside class="picker" aria-label="種類の選択">
       <p id="selection" class="selection"></p>
       <input id="filter" class="filter" type="search" placeholder="種類を絞り込み（/）Enterで決定" autocomplete="off" />

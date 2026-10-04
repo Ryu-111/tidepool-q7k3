@@ -10,6 +10,7 @@ import {
   type Progress,
 } from "./api.js";
 import { byId, el, isTyping } from "./dom.js";
+import { bindSidebarToggle, Preview } from "./preview.js";
 import {
   formHeading,
   matchKinds,
@@ -61,6 +62,7 @@ const ui = {
 };
 
 // Saves run one after another so a fast sequence of keys cannot reorder writes.
+const preview = new Preview(select);
 let queue: Promise<void> = Promise.resolve();
 
 function setStatus(text: string, error = false): void {
@@ -123,6 +125,7 @@ function renderMain(): void {
     nodes.push(el("p", { className: "empty", text: "入力できる欄がありません。" }));
   }
   ui.main.replaceChildren(...nodes);
+  preview.update(app.selected);
 }
 
 function currentRow(): Row | undefined {
@@ -155,6 +158,7 @@ function select(position: number): void {
   renderMain();
   renderPicker();
   ui.main.querySelector(".row.selected")?.scrollIntoView({ block: "nearest" });
+  preview.update(app.selected, true);
 }
 
 function save(kind: string | null, unsure: boolean, note: string): void {
@@ -213,6 +217,7 @@ async function openPage(key: string): Promise<void> {
   app.rows = rowsOf(page);
   const firstOpen = app.rows.findIndex((row) => !row.field.answer);
   app.selected = Math.max(0, firstOpen);
+  preview.show(page, app.rows, app.selected);
   history.replaceState(null, "", `#page=${encodeURIComponent(key)}`);
   renderSidebarPane();
   ui.sidebar.querySelector(".page-item.current")?.scrollIntoView({ block: "center" });
@@ -314,6 +319,7 @@ function onFilterKey(event: KeyboardEvent): void {
 }
 
 function bindEvents(): void {
+  bindSidebarToggle();
   document.addEventListener("keydown", onKey);
   ui.filter.addEventListener("input", () => {
     app.filter = ui.filter.value;

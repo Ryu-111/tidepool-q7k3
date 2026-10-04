@@ -68,6 +68,7 @@ export interface Form {
 }
 
 export interface PageDetail {
+  readonly snapshot: boolean;
   readonly key: string;
   readonly category: string;
   readonly host: string;
