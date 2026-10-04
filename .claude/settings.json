@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(rtk proxy python3 probe/build.py)",
+      "Bash(rtk proxy python3 -m unittest:*)",
+      "Bash(rtk proxy npx jest:*)",
+      "Bash(rtk proxy npx eslint:*)",
+      "Bash(rtk proxy npx tsc --noEmit:*)",
+      "Bash(git -C android status:*)",
+      "Bash(git -C android diff:*)",
+      "Bash(git -C clients status:*)",
+      "Bash(git -C clients diff:*)"
+    ],
+    "ask": [
+      "Bash(rtk proxy python3 probe/live_check.py)",
+      "Bash(git -C android commit:*)",
+      "Bash(git -C clients commit:*)",
+      "Bash(git -C android reset:*)",
+      "Bash(git -C clients reset:*)",
+      "Bash(git -C android stash:*)",
+      "Bash(git -C clients stash:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/*.jks)",
+      "Read(./**/*.keystore)",
+      "Read(./**/user.properties)",
+      "Edit(./.env)",
+      "Edit(./**/.env)",
+      "Bash(cat .env:*)",
+      "Bash(cat ./.env:*)"
+    ]
+  }
+}
