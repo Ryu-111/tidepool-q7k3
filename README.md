@@ -1,5 +1,7 @@
 # jev-autofill
 
+[![probe](https://github.com/Ryu-111/tidepool-q7k3/actions/workflows/probe.yml/badge.svg)](https://github.com/Ryu-111/tidepool-q7k3/actions/workflows/probe.yml)
+
 Personal modification of Bitwarden (Chrome extension and Android app) that fills a Japanese personal profile and a site login into a web form in one step. Fields the on-device rules cannot classify are optionally sent to Jev (via OpenRouter) as value-free field descriptions. Submission is always manual.
 
 ## Status
@@ -24,7 +26,7 @@ Prototype. Not for general use.
 - The existing Bitwarden vault, encryption and sync are reused; extra profile fields are encrypted custom fields (`jev.*`).
 - Filling requires an unlocked vault, a matching HTTPS origin and re-validated fields; existing values are never overwritten silently; nothing is auto-submitted.
 
-Full contributor rules: [AGENTS.md](AGENTS.md). Chrome usage: [CHROME.md](CHROME.md).
+Architecture: [docs/architecture.md](docs/architecture.md). Contributor rules: [AGENTS.md](AGENTS.md). Chrome usage: [CHROME.md](CHROME.md).
 
 ## Out of scope
 

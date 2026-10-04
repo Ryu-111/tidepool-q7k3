@@ -1,0 +1,50 @@
+name: probe
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: probe
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Unit tests (no network, synthetic keys only)
+        run: python -m unittest -v test_live_check.py test_emulator_key.py
+
+  jvm-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: probe
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      # Same compile and run steps as build.py, without the Android SDK.
+      - name: Compile policy tests
+        run: >
+          javac --release 8 -encoding UTF-8 -d build/tests
+          src/dev/ryu/jevprobe/Policy.java
+          src/dev/ryu/jevprobe/Profile.java
+          test/dev/ryu/jevprobe/PolicyTest.java
+      - name: Run policy tests
+        run: java -cp build/tests dev.ryu.jevprobe.PolicyTest

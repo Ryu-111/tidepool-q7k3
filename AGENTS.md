@@ -1,6 +1,6 @@
 # jev-autofill development rules (Claude Code / Codex)
 
-Personal Bitwarden modification (Chrome extension and Android) that bulk-fills a Japanese profile and a site login. Product behavior: [README.md](README.md). Ownership and open issues: [COORDINATION.md](COORDINATION.md). Verified scope: [VERIFICATION.md](VERIFICATION.md). Chrome: [CHROME.md](CHROME.md). Probe: [probe/README.md](probe/README.md).
+Personal Bitwarden modification (Chrome extension and Android) that bulk-fills a Japanese profile and a site login. Product behavior: [README.md](README.md). Architecture: [docs/architecture.md](docs/architecture.md). Ownership and open issues: [COORDINATION.md](COORDINATION.md). Verified scope: [VERIFICATION.md](VERIFICATION.md). Chrome: [CHROME.md](CHROME.md). Probe: [probe/README.md](probe/README.md).
 
 ## Getting started
 
@@ -77,6 +77,7 @@ rtk proxy python3 ../scripts/build-chrome.py              # production build + Z
 
 ## Verification and reporting
 
+- CI (`.github/workflows/probe.yml`) runs the probe Python tests and JVM policy tests on push and PRs; `android/` and `clients/` are not covered.
 - Test the changed behavior and its failure paths before calling it done. Kotlin (detekt, Gradle) is not covered by hooks; run it manually.
 - Keep these apart: unit test vs device E2E, LOCAL vs `JEV LIVE (no request)` vs a real Jev query, emulator vs physical device, localhost vs real HTTPS sites. State what is unverified.
 
