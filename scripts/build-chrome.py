@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -12,6 +13,11 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 CLIENTS = Path(os.environ.get("JEV_CLIENTS_DIR") or ROOT / "clients")
 RUNTIME = ROOT / ".tools/node-v24.17.0-darwin-arm64/bin"
+# The archive may be published as a release: refuse anything that looks like a credential.
+SECRET = re.compile(
+    rb"sk-or-[A-Za-z0-9-]{8,}|sk-ant-[A-Za-z0-9-]{8,}|BEGIN [A-Z ]*PRIVATE KEY|"
+    rb"OPENROUTER_API_KEY=\S|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}"
+)
 
 
 def package():
@@ -28,10 +34,13 @@ def package():
     dist = ROOT / "chrome-dist"
     dist.mkdir(exist_ok=True)
     archive = dist / "jev-autofill-chrome.zip"
+    files = [path for path in sorted(build.rglob("*")) if path.is_file()]
+    for path in files:
+        if SECRET.search(path.read_bytes()):
+            raise SystemExit(f"Refusing to package {path.relative_to(build)}: looks like a secret.")
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
-        for path in sorted(build.rglob("*")):
-            if path.is_file():
-                z.write(path, path.relative_to(build))
+        for path in files:
+            z.write(path, path.relative_to(build))
     # Chrome loads the unpacked copy in chrome-dist; refresh it so a reload picks up this build.
     if "--zip-only" in sys.argv[1:]:
         print("Archive:", archive)
@@ -47,6 +56,8 @@ def package():
 
 
 if __name__ == "__main__":
+    if not (CLIENTS / "package.json").exists():
+        raise SystemExit(f"No clients checkout at {CLIENTS}; set JEV_CLIENTS_DIR to its absolute path.")
     env = dict(os.environ)
     # Production mode minifies the bundles; the development bundles make the popup open slowly.
     env["NODE_ENV"] = "production"

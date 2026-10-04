@@ -90,7 +90,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: >
-          gh release create "$TAG" jev-autofill-chrome.zip
-          --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
-          --notes "Unpacked personal build; load it from chrome://extensions in developer mode."
+        # A rerun for an existing tag replaces the asset instead of failing.
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" jev-autofill-chrome.zip --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" jev-autofill-chrome.zip --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" --generate-notes \
+              --notes "Unpacked personal build; load it from chrome://extensions in developer mode."
+          fi
