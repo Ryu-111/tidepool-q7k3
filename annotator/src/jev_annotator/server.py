@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, ClassVar, Final, override
 from urllib.parse import parse_qs, urlsplit
 
 from jev_annotator import api
+from jev_annotator.snapshot import sanitize, snapshot_csp, snapshot_path
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -29,7 +30,8 @@ LOOPBACK_HOSTS: Final = frozenset({"127.0.0.1", "localhost"})
 SECURITY_HEADERS: Final = {
     "Content-Security-Policy": (
         "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
-        "img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        "img-src 'self'; frame-src 'self'; base-uri 'none'; "
+        "form-action 'none'; frame-ancestors 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -57,6 +59,7 @@ class Context:
     pages: Mapping[str, Page]
     store: LabelStore
     files: Mapping[str, Path]
+    corpus: Path | None = None
 
 
 class AnnotatorHandler(BaseHTTPRequestHandler):
@@ -70,10 +73,12 @@ class AnnotatorHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         """Keep the console quiet; requests carry nothing worth logging."""
 
-    def _send(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
+    def _send(
+        self, status: HTTPStatus, body: bytes, content_type: str, *, csp: str | None = None
+    ) -> None:
         self.send_response(status)
         for name, value in SECURITY_HEADERS.items():
-            self.send_header(name, value)
+            self.send_header(name, csp if name == "Content-Security-Policy" and csp else value)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -107,11 +112,36 @@ class AnnotatorHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, api.state(context.pages, context.store))
             elif url.path == "/api/page":
                 key = parse_qs(url.query).get("key", [""])[0]
-                self._json(HTTPStatus.OK, api.page_detail(context.pages, context.store, key))
+                detail = api.page_detail(context.pages, context.store, key)
+                file = self._snapshot_file(key)
+                detail["snapshot"] = file is not None and file.is_file()
+                self._json(HTTPStatus.OK, detail)
+            elif url.path == "/snapshot":
+                query = parse_qs(url.query)
+                self._snapshot(
+                    query.get("key", [""])[0], styles=query.get("styles", ["1"])[0] != "0"
+                )
             else:
                 self._static(url.path)
         except api.ApiError as error:
             self._error(error.status, error.message)
+
+    def _snapshot_file(self, key: str) -> Path | None:
+        corpus = self.context.corpus
+        return (
+            snapshot_path(corpus, key) if corpus is not None and key in self.context.pages else None
+        )
+
+    def _snapshot(self, key: str, *, styles: bool) -> None:
+        file = self._snapshot_file(key)
+        try:
+            if file is None:
+                raise FileNotFoundError
+            html = file.read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            raise api.ApiError(HTTPStatus.NOT_FOUND, "unknown snapshot") from error
+        body = sanitize(html, self.context.pages[key].url).encode()
+        self._send(HTTPStatus.OK, body, "text/html; charset=utf-8", csp=snapshot_csp(styles=styles))
 
     def _static(self, path: str) -> None:
         name = "index.html" if path == "/" else path.removeprefix("/static/")
@@ -160,11 +190,12 @@ def make_handler(
     pages: Mapping[str, Page],
     store: LabelStore,
     files: Mapping[str, Path],
+    corpus: Path | None = None,
 ) -> type[AnnotatorHandler]:
     """Build a handler class bound to one corpus, label store and set of static files."""
 
     class Bound(AnnotatorHandler):
-        context = Context(pages, store, files)
+        context = Context(pages, store, files, corpus)
 
     return Bound
 
@@ -174,6 +205,7 @@ def serve(
     store: LabelStore,
     files: Mapping[str, Path],
     port: int,
+    corpus: Path | None = None,
 ) -> ThreadingHTTPServer:
     """Create (but do not start) the server on ``127.0.0.1:port``; port 0 picks a free one."""
-    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(pages, store, files))
+    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(pages, store, files, corpus))

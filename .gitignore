@@ -43,6 +43,9 @@ __pycache__/
 # Annotation labels for the corpus (kept local like the corpus itself)
 probe/corpus/labels/
 
+# Rendered page snapshots for the annotator (third-party content, kept local)
+probe/corpus/html/
+
 # Annotator build outputs and dependencies
 annotator/.venv/
 annotator/.coverage

@@ -10,6 +10,7 @@ from typing import Final
 
 from jev_annotator.corpus import CorpusError, Page, load_corpus
 from jev_annotator.feedback import FeedbackError, load_feedback
+from jev_annotator.fetch import fetch_pages
 from jev_annotator.report import ReportError, render, render_feedback, score, score_feedback
 from jev_annotator.server import serve, static_files
 from jev_annotator.store import LabelStore, StoreError
@@ -36,6 +37,14 @@ def default_corpus(repo_root: Path) -> Path:
         return own
     main_corpus = git_dir.parents[2] / _CORPUS
     return main_corpus if (main_corpus / "raw").is_dir() else own
+
+
+def _limit(value: str) -> int:
+    limit = int(value)
+    if limit < 0:
+        msg = "limit must be nonnegative"
+        raise argparse.ArgumentTypeError(msg)
+    return limit
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -65,6 +74,9 @@ def _parser() -> argparse.ArgumentParser:
     report_command.add_argument("predictions", type=Path)
     feedback_command = commands.add_parser("report-feedback", help="score a correction export JSON")
     feedback_command.add_argument("export", type=Path)
+    fetch_command = commands.add_parser("fetch-pages", help="save rendered HTML snapshots")
+    fetch_command.add_argument("--force", action="store_true")
+    fetch_command.add_argument("--limit", type=_limit)
     return parser
 
 
@@ -75,7 +87,7 @@ def _serve(args: argparse.Namespace, corpus: Path, store: LabelStore) -> int:
         return 1
     pages = _pages(args, corpus)
     port: int = getattr(args, "port", 8790)
-    server = serve(pages, store, files, port)
+    server = serve(pages, store, files, port, corpus)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     sys.stdout.write(f"{len(pages)} pages, labels in {store.path}\nOpen {url} (Ctrl+C to stop)\n")
     if not getattr(args, "no_browser", False):
@@ -117,6 +129,12 @@ def main(argv: list[str] | None = None) -> int:
     corpus: Path = args.corpus.resolve()
     labels: Path = args.labels or corpus / "labels" / "labels.json"
     try:
+        if args.command == "fetch-pages":
+            pages = load_corpus(corpus, _page_list(args, corpus))
+            for line in fetch_pages(corpus, pages, force=args.force, limit=args.limit):
+                sys.stdout.write(line)
+                sys.stdout.flush()
+            return 0
         store = LabelStore(labels)
         if args.command == "report":
             predictions: Path = args.predictions

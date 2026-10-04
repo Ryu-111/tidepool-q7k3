@@ -26,6 +26,25 @@ Each fill appears as a `feedback/<fill>` page, with the recorded decision and su
 action shown beside each field. Labels use the same store as corpus labels. The corpus is still
 required. Only version 1 exports are accepted; malformed outcomes are skipped and counted.
 
+## Rendered snapshots
+
+```sh
+uv run jev-annotator fetch-pages --limit 10
+uv run jev-annotator --corpus ../probe/corpus --pages eval/usable.txt fetch-pages --force
+```
+
+Uses each page's HTTPS `source_url`, checks robots.txt for
+`jev-autofill-research/0.1 (form structure survey)`, then runs `<corpus>/render.sh` (Chrome is
+required). Network failures or robots denials are reported and skipped. Attempts are spaced
+at least two seconds apart; `--limit` counts attempts, excluding existing files. `--force`
+replaces existing snapshots only after a successful render.
+
+Snapshots stay local in `<corpus>/html/<category>/<name>.html` and are ignored by Git.
+`/api/page?key=<category>/<name>.json` includes a `snapshot` availability flag.
+`/snapshot?key=<category>/<name>.json&styles=1` serves sanitized HTML with a sandbox CSP;
+`styles=0` blocks external presentation assets. The UI should use a sandboxed iframe with
+only `allow-same-origin`: scripts, submissions and active embedded documents are disabled.
+
 ## Labelling
 
 Each fillable control (hidden, button, checkbox and radio controls are left out, as in
