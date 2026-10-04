@@ -8,16 +8,23 @@ Personal Bitwarden modification (Chrome extension and Android) that bulk-fills a
 - Read the "Rules" in README.md and the open issues in COORDINATION.md first.
 - Run shell commands through `rtk`; use `rtk proxy <command>` when exact output or exit codes matter.
 
+## Branches (git flow)
+
+- `main` holds released states; `develop` is the integration branch.
+- Work on `feature/<topic>` branched from `develop` and merged back into it by pull request; urgent fixes go on `hotfix/<topic>` from `main`; releases are prepared on `release/<version>`.
+- Rename tool-generated branches (such as `claude/...`) to this scheme before pushing.
+
 ## Repository layout
 
 | Path | Contents | Git |
 | --- | --- | --- |
-| `/` | Docs, `probe/`, `scripts/` | this repository |
+| `/` | Docs, `probe/`, `scripts/`, `annotator/`, `clients-patch/` | this repository |
 | `android/` | Bitwarden Android; Jev code in `app/src/main/kotlin/com/x8bit/bitwarden/data/autofill/jev/` | separate working copy, `jev-autofill-prototype` |
 | `clients/` | Bitwarden clients; Jev code in `apps/browser/src/autofill/jev/` and `apps/browser/src/autofill/popup/jev/` | separate working copy, `jev-autofill-prototype` |
 | `sdk-internal/` | Official SDK `8b9fa3e2` for the local build | separate, do not edit |
 | `reference/` | Community API samples; never ship | separate, do not edit |
 
+- `clients-patch/` is the published form of the `clients/` changes: `UPSTREAM` (the bitwarden/clients commit) and `jev.patch` (all changes on top of it, including uncommitted and untracked files). After changing `clients/`, run `rtk proxy python3 scripts/export-clients-patch.py` and commit the result; CI builds only from this patch.
 - `android/` and `clients/` hold uncommitted work. Commit, stash, reset or switch branches there only when asked. They are ignored by the root repository, so run `git status` inside each.
 - Keep upstream behavior intact (default arguments etc.) and add the Jev path alongside it.
 
@@ -64,6 +71,10 @@ rtk proxy npx jest --config apps/browser/jest.config.js --runInBand apps/browser
 rtk proxy npx eslint apps/browser/src/autofill/jev apps/browser/src/autofill/popup/jev
 rtk proxy npx tsc --noEmit -p apps/browser/tsconfig.json
 rtk proxy python3 ../scripts/build-chrome.py              # production build + ZIP (~15 min)
+
+# Corpus annotation (in annotator/)
+./check.sh                                                # Ruff, Mypy, pytest, tsc, ESLint
+uv run jev-annotator                                      # UI at http://127.0.0.1:8790/
 ```
 
 - Local SDK build: `rtk proxy python3 scripts/build-local-sdk.py` (no GitHub token).
@@ -77,7 +88,7 @@ rtk proxy python3 ../scripts/build-chrome.py              # production build + Z
 
 ## Verification and reporting
 
-- CI (`.github/workflows/probe.yml`) runs the probe Python tests and JVM policy tests on push and PRs; `android/` and `clients/` are not covered.
+- CI: `probe.yml` runs the probe Python and JVM policy tests; `annotator.yml` runs the annotator checks; `chrome.yml` applies `clients-patch/jev.patch` to upstream, runs the Jev Jest suites, ESLint and `tsc`, and builds the production extension ZIP as an artifact. Pushing a `chrome-v*` tag also publishes the ZIP as a GitHub Release. `android/` is not covered.
 - Test the changed behavior and its failure paths before calling it done. Kotlin (detekt, Gradle) is not covered by hooks; run it manually.
 - Keep these apart: unit test vs device E2E, LOCAL vs `JEV LIVE (no request)` vs a real Jev query, emulator vs physical device, localhost vs real HTTPS sites. State what is unverified.
 
