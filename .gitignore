@@ -25,6 +25,7 @@ probe/corpus/excluded/
 probe/corpus/index.tsv
 probe/corpus/eval/*.tsv
 probe/corpus/eval/usable.txt
+probe/corpus/labels/
 
 # Build outputs and local tools
 .build/
