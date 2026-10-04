@@ -42,3 +42,4 @@ Standard name, address, phone and email use the Bitwarden Identity. Extra data u
 ## Log
 
 - 2026-10-04 Claude: repository published; docs translated to English and condensed.
+- 2026-10-04 Claude + Codex: added `annotator/` (corpus labelling and scoring; 464 fields labelled so far), Chrome correction-feedback recording (`chrome.storage.local`, no values), `clients-patch/` with the `chrome` CI/CD workflow, and git flow branches. Codex implemented the feedback import and the review fixes; Claude integrated and verified. Unverified: feedback recording in a real Chrome.

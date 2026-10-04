@@ -39,3 +39,15 @@ __pycache__/
 .claude/settings.local.json
 .jev-off
 .DS_Store
+
+# Annotation labels for the corpus (kept local like the corpus itself)
+probe/corpus/labels/
+
+# Annotator build outputs and dependencies
+annotator/.venv/
+annotator/.coverage
+annotator/.pytest_cache/
+annotator/.mypy_cache/
+annotator/.ruff_cache/
+annotator/web/node_modules/
+annotator/web/dist/

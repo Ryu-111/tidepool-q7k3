@@ -19,7 +19,8 @@ class LiveCheckTests(unittest.TestCase):
                 live_check.read_key(path)
             path.chmod(0o600)
             for content in ("OPENROUTER_API_KEY=", "OPENROUTER_API_KEY=a\nOTHER=b", "export OPENROUTER_API_KEY=a",
-                            "OPENROUTER_API_KEY=\"value\"", "OPENROUTER_API_KEY=one two", "TYPESAFE_API_KEY=wrong-provider"):
+                            "OPENROUTER_API_KEY=\"value\"", "OPENROUTER_API_KEY=one two",
+                            "TYPESAFE_API_KEY=wrong-provider"):
                 path.write_text(content)
                 with self.assertRaises(live_check.CheckError):
                     live_check.read_key(path)
@@ -50,7 +51,8 @@ class LiveCheckTests(unittest.TestCase):
                 live_check.validate(invalid)
 
     def test_transport_fixed_destination_and_no_key_in_body(self):
-        body = b'{"answers":{"f0":{"type":"choice","choice":"EMAIL","confidence":0.99,"probabilities":{"EMAIL":0.99,"UNKNOWN":0.01}}}}'
+        body = (b'{"answers":{"f0":{"type":"choice","choice":"EMAIL","confidence":0.99,'
+                b'"probabilities":{"EMAIL":0.99,"UNKNOWN":0.01}}}}')
         response = mock.MagicMock(status=200)
         response.read.return_value = body
         response.__enter__.return_value = response
