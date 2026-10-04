@@ -742,10 +742,10 @@ index 0000000..ef395f1
 +}
 diff --git a/apps/browser/src/autofill/jev/jev-kinds.ts b/apps/browser/src/autofill/jev/jev-kinds.ts
 new file mode 100644
-index 0000000..50c9e95
+index 0000000..ea68822
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-kinds.ts
-@@ -0,0 +1,387 @@
+@@ -0,0 +1,473 @@
 +// Field kinds and on-device classification rules, ported from the Android JevFieldPolicy.
 +// A kind is the set of profile components it renders, so a combined field ("住所") and its parts
 +// ("都道府県", "番地") compare structurally, never by value.
@@ -899,7 +899,7 @@ index 0000000..50c9e95
 +    case "EMAIL":
 +      return kind === "EMAIL";
 +    case "TEL":
-+      return isWithin(kind, "PHONE") || isWithin(kind, "POSTAL");
++      return digits;
 +    case "NUMBER":
 +      return digits || kind === "CHOME" || kind === "BAN" || kind === "GO";
 +    case "LIST":
@@ -939,27 +939,34 @@ index 0000000..50c9e95
 +const add = (kind: JevKind, ...values: string[]) =>
 +  values.forEach((v) => labels.set(normalize(v), kind));
 +
-+add("FAMILY", "family-name", "lastname", "last name", "last_name", "sei", "name_sei", "name1");
++add("FAMILY", "family-name", "lastname", "last name", "last_name", "sei", "name_sei");
 +add("FAMILY", "姓", "名字", "苗字", "氏", "姓(漢字)", "name_last");
-+add("GIVEN", "given-name", "firstname", "first name", "first_name", "mei", "name_mei", "name2");
++add("FAMILY", "family_name");
++add("GIVEN", "given-name", "firstname", "first name", "first_name", "mei", "name_mei");
 +add("GIVEN", "名", "名(漢字)", "name_first");
++add("GIVEN", "given_name");
 +add("FULL_NAME", "name", "fullname", "full name", "full_name", "氏名", "名前", "フルネーム");
 +add("FULL_NAME", "氏名(漢字)", "name_full");
 +add("FAMILY_KANA", "姓(フリガナ)", "セイ", "姓(カナ)", "せい", "姓(ふりがな)", "フリガナ(姓)");
 +add("FAMILY_KANA", "ふりがな(姓)", "kana_sei", "sei_kana", "kana1", "family-name-kana");
++add("FAMILY_KANA", "フリガナ(セイ)", "ふりがな姓");
 +add("GIVEN_KANA", "名(フリガナ)", "メイ", "名(カナ)", "めい", "名(ふりがな)", "フリガナ(名)");
 +add("GIVEN_KANA", "ふりがな(名)", "kana_mei", "mei_kana", "kana2", "given-name-kana");
++add("GIVEN_KANA", "フリガナ(メイ)", "ふりがな名");
 +add("FULL_KANA", "フリガナ", "ふりがな", "カナ", "よみがな", "氏名(フリガナ)", "氏名(カナ)");
 +add("FULL_KANA", "氏名(ふりがな)", "kana", "furigana", "name_kana");
 +add("POSTAL", "postal-code", "postal code", "postal_code", "zip", "zipcode", "zip code");
-+add("POSTAL", "postcode", "郵便番号", "〒");
++add("POSTAL", "postcode", "postalcode", "zip_code", "post_cd", "郵便番号", "〒");
 +add("POSTAL_1", "zip1", "zip01", "zip_1", "postal1", "postcode1", "郵便番号1", "郵便番号(前半)");
 +add("POSTAL_1", "郵便番号(上3桁)");
 +add("POSTAL_2", "zip2", "zip02", "zip_2", "postal2", "postcode2", "郵便番号2", "郵便番号(後半)");
 +add("POSTAL_2", "郵便番号(下4桁)");
 +add("REGION", "address-level1", "都道府県", "state", "province", "pref", "prefecture");
++add("REGION", "都道府県名", "prefectures", "state_code", "todofuken_name", "todofuken_cd");
 +add("CITY", "address-level2", "市区町村", "市町村", "市区郡", "city", "市区町村名", "市区郡町村");
 +add("CITY", "市区町村・郡");
++add("CITY", "municipalities");
++add("REGION", "todofuken");
 +add("MUNICIPALITY", "市", "市郡", "市・郡", "郡市", "市名", "city1", "address_city1");
 +add("WARD", "区", "区町村", "区・町村", "区名", "町村", "city2", "address_city2", "ward");
 +add("TOWN", "address-level3", "町名", "町域", "町名・字", "町・字", "大字", "字", "町域名", "town");
@@ -968,25 +975,29 @@ index 0000000..50c9e95
 +add("GO", "号", "go");
 +add("BAN_GO", "番・号", "番地・号", "番号");
 +add("BLOCK", "house number", "丁目・番・号", "番地のみ");
++add("BLOCK", "house_number");
 +add("TOWN_CHOME", "町名・丁目", "町域・丁目", "町名丁目");
++add("TOWN_CHOME", "town_chome");
 +add("STREET", "address-line1", "番地", "町名番地", "町名・番地", "町域・番地", "丁目・番地");
 +add("STREET", "street");
 +add("BUILDING", "address-line2", "建物名", "建物名・部屋番号", "建物名・号室", "マンション名");
-+add("BUILDING", "building", "address2", "addr2", "住所2");
++add("BUILDING", "building");
++add("BUILDING", "building_name", "apartment", "ビル・マンション名・号室");
 +add("REGION_CITY", "都道府県・市区町村", "都道府県市区町村", "都道府県・市区郡");
 +add("CITY_STREET", "市区町村・番地", "市区町村番地", "市区町村・町名・番地");
 +add("ADDRESS_AFTER_REGION", "市区町村以降", "都道府県以降");
-+add("ADDRESS_NO_BUILDING", "address1", "addr1", "住所1");
 +add("ADDRESS_LINES", "street-address");
-+add("ADDRESS_FULL", "住所", "address", "所在地");
++add("ADDRESS_FULL", "住所", "address", "addr", "所在地");
 +add("PHONE", "tel", "tel-national", "phone", "phone number", "telephone", "電話", "電話番号");
 +add("PHONE", "携帯電話番号", "連絡先電話番号");
++add("PHONE", "携帯番号", "telephone_number", "phone_number", "phone_mobile", "telno");
 +add("PHONE_1", "tel1", "tel01", "tel_1", "phone1", "tel-area-code", "電話番号1");
 +add("PHONE_2", "tel2", "tel02", "tel_2", "phone2", "tel-local-prefix", "電話番号2");
 +add("PHONE_3", "tel3", "tel03", "tel_3", "phone3", "tel-local-suffix", "電話番号3");
 +add("EMAIL", "email", "email address", "e-mail", "mail", "メールアドレス", "メール");
 +add("EMAIL", "email_confirm", "email2", "mail_confirm", "メールアドレス(確認)");
 +add("EMAIL", "メールアドレス(確認用)", "確認用メールアドレス", "email_address");
++add("EMAIL", "eメールアドレス", "e-mailアドレス", "メール アドレス", "mail_address");
 +add("USERNAME", "username", "user name", "ユーザー名");
 +add("BIRTHDATE", "生年月日", "誕生日", "birthday", "birthdate", "birth date", "bday");
 +add("BIRTHDATE", "date of birth", "dob", "birth", "birth_date", "birthday_date");
@@ -995,13 +1006,16 @@ index 0000000..50c9e95
 +add("BIRTH_MONTH", "誕生月", "生まれ月", "birth_month", "birthmonth", "birth_m", "bday-month");
 +add("BIRTH_MONTH", "bday_month", "birthday_month", "birth-month");
 +add("BIRTH_DAY", "birth_day", "birthday_day", "birth_d", "bday-day", "bday_day", "birth-day");
++add("BIRTH_YEAR", "birthdate_y");
++add("BIRTH_MONTH", "birthdate_m");
++add("BIRTH_DAY", "birthdate_d");
 +add("BIRTH_ERA", "元号", "年号", "和暦", "era", "birth_era", "gengo");
 +add("GENDER", "性別", "gender", "sex", "seibetsu");
 +add("AGE", "年齢", "age", "ご年齢");
 +add("COUNTRY", "国", "国名", "国・地域", "country", "country-name", "国籍");
 +add("COMPANY", "会社名", "勤務先", "勤務先名", "法人名", "企業名", "団体名", "組織名");
 +add("COMPANY", "company", "company name", "company_name", "organization");
-+add("DEPARTMENT", "部署", "部署名", "所属", "所属部署", "department", "division", "dept");
++add("DEPARTMENT", "部署", "部署名", "所属", "所属部署", "department", "dept");
 +add("JOB_TITLE", "役職", "役職名", "職位", "job title", "job_title", "jobtitle");
 +[
 +  "必須",
@@ -1059,7 +1073,10 @@ index 0000000..50c9e95
 +    return direct;
 +  }
 +  // Drop only known annotations: "(必須)", "【半角数字】", "※...", "例)...", "*", leading ご/お.
-+  text = text.replace(/[※*].*$/u, "").replace(/\s*例[:)].*$/u, "");
++  text = text
++    .replace(/^[*※\s]+/u, "")
++    .replace(/[※*].*$/u, "")
++    .replace(/\s*例[:)].*$/u, "");
 +  let kept = "";
 +  let last = 0;
 +  for (const match of text.matchAll(bracket)) {
@@ -1074,13 +1091,71 @@ index 0000000..50c9e95
 +    last = match.index! + match[0].length;
 +  }
 +  kept += text.slice(last);
-+  text = kept.trim();
++  text = kept
++    .replace(/(?:必須|任意)\s*$/u, "")
++    .replace(/を入力(?:して(?:ください|下さい))?[。.]?$/u, "")
++    .replace(/[:：]\s*.*$/u, "")
++    .replace(/^お住まいの/u, "")
++    .trim();
 +  const trimmed = labels.get(text);
 +  if (trimmed) {
 +    return trimmed;
 +  }
 +  if (text.startsWith("ご") || text.startsWith("お")) {
 +    return labels.get(text.slice(1)) ?? "UNKNOWN";
++  }
++  return "UNKNOWN";
++}
++
++/** Parse identifier tokens, never arbitrary substrings of prose or a site-specific prefix. */
++export function identifierKind(raw: string): JevKind {
++  if (!raw || raw.length > 128) {
++    return "UNKNOWN";
++  }
++  let tokens = raw
++    .normalize("NFKC")
++    .replace(/([a-z])([A-Z])/g, "$1_$2")
++    .toLowerCase()
++    .split(/[_\s.[\]$:-]+/u)
++    .filter(Boolean);
++  const text = tokens.join("_");
++  if (tokens.some((t) => /^(?:fax|spouse|guardian|parent|emergency|destination)$/u.test(t))) {
++    return "UNKNOWN";
++  }
++  // A numeric suffix can be a box number or a separate field. Resolve it from siblings.
++  if (/(?:^|_)(?:name|addr|address|tel|phone)(?:_?0?[1-3])(?:input)?$/u.test(text)) {
++    return "UNKNOWN";
++  }
++  const reading = tokens.some((t) => /^(?:kana|furigana|phonetic)$/u.test(t));
++  if (reading && tokens.length > 1) {
++    tokens = tokens.filter((t) => !/^(?:kana|furigana|phonetic)$/u.test(t));
++  }
++  while (
++    tokens.length > 1 &&
++    /^(?:confirm|confirmation|check|cf|input|sai|nyuryoku)$/u.test(tokens.at(-1)!)
++  ) {
++    tokens.pop();
++  }
++  for (let start = 0; start < tokens.length; start++) {
++    const part = tokens.slice(start).join("_");
++    let kind = labelKind(part);
++    if (/^(?:email|mail)_?\d+$/u.test(part)) {
++      kind = "EMAIL";
++    }
++    if (reading) {
++      if (kind === "FAMILY") {
++        kind = "FAMILY_KANA";
++      } else if (kind === "GIVEN") {
++        kind = "GIVEN_KANA";
++      } else if (kind === "FULL_NAME") {
++        kind = "FULL_KANA";
++      } else if (kind === "COMPANY") {
++        return "UNKNOWN"; // Organization readings are not a personal name.
++      }
++    }
++    if (kind !== "UNKNOWN") {
++      return kind;
++    }
 +  }
 +  return "UNKNOWN";
 +}
@@ -1124,26 +1199,37 @@ index 0000000..50c9e95
 +  }
 +  return kinds.map((kind, i) => {
 +    let mask = maskOf(kind);
-+    kinds.forEach((other, j) => {
-+      if (j !== i && other !== kind && isWithin(other, kind)) {
-+        mask &= ~maskOf(other);
++    if (isAddress(kind)) {
++      // Unrelated fields separate address sections; never borrow parts from another section.
++      let start = i;
++      let end = i + 1;
++      while (start > 0 && isAddress(kinds[start - 1])) {
++        start--;
 +      }
-+    });
++      while (end < kinds.length && isAddress(kinds[end])) {
++        end++;
++      }
++      for (let j = start; j < end; j++) {
++        if (j !== i && kinds[j] !== kind && isWithin(kinds[j], kind)) {
++          mask &= ~maskOf(kinds[j]);
++        }
++      }
++    }
 +    const refined = mask === maskOf(kind) ? kind : kindOf(mask);
 +    return isCompatible(shapes[i], refined) ? refined : "UNKNOWN";
 +  });
 +}
 diff --git a/apps/browser/src/autofill/jev/jev-model.spec.ts b/apps/browser/src/autofill/jev/jev-model.spec.ts
 new file mode 100644
-index 0000000..014e6dc
+index 0000000..ce46b68
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.spec.ts
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,434 @@
 +import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
 +
 +import { JevProfile, parseFormat, render, toJevProfile } from "./jev-format";
-+import { labelKind, refine, JevKind, JevShape } from "./jev-kinds";
-+import { jevRequest, jevRequests, parseJevAnswers, planRows } from "./jev-model";
++import { identifierKind, labelKind, refine, JevKind, JevShape } from "./jev-kinds";
++import { jevRequest, jevRequests, localKind, parseJevAnswers, planRows } from "./jev-model";
 +import type { JevPageField } from "./jev-page";
 +
 +const today = { year: 2026, month: 9, day: 29 };
@@ -1234,6 +1320,115 @@ index 0000000..014e6dc
 +    expect(text(["REGION", "ADDRESS_FULL", "BUILDING"])[1]).toBe("CITY_STREET");
 +    expect(refine(["EMAIL", "TEXT"], ["POSTAL", "POSTAL"])).toEqual(["UNKNOWN", "POSTAL_2"]);
 +  });
++
++  it.each([
++    ["* 姓（フリガナ）", "FAMILY_KANA"],
++    ["都道府県 必須 ※選択してください", "REGION"],
++    ["氏名任意", "FULL_NAME"],
++    ["姓：例）試験", "FAMILY"],
++    ["メイ：タロウ", "GIVEN_KANA"],
++    ["Eメールアドレスを入力", "EMAIL"],
++    ["メールアドレスを入力して下さい", "EMAIL"],
++    ["お住まいの都道府県名", "REGION"],
++    ["携帯番号", "PHONE"],
++    ["フリガナ（セイ）", "FAMILY_KANA"],
++    ["フリガナ（メイ）", "GIVEN_KANA"],
++    ["ふりがな姓", "FAMILY_KANA"],
++    ["ふりがな名", "GIVEN_KANA"],
++    ["ビル・マンション名・号室", "BUILDING"],
++    ["氏名（別の人）", "UNKNOWN"],
++    ["division", "UNKNOWN"],
++    ["name1", "UNKNOWN"],
++    ["address2", "UNKNOWN"],
++  ] as [string, JevKind][])("normalizes generic label %s", (label, kind) => {
++    expect(labelKind(label)).toBe(kind);
++  });
++
++  it.each([
++    ["profile[family_name]", "FAMILY"],
++    ["user.givenName", "GIVEN"],
++    ["customerLastName", "FAMILY"],
++    ["customerFirstNameKana", "GIVEN_KANA"],
++    ["kanaLastName", "FAMILY_KANA"],
++    ["familyNamePhonetic", "FAMILY_KANA"],
++    ["nameMei", "GIVEN"],
++    ["profile_postalCode", "POSTAL"],
++    ["postCd", "POSTAL"],
++    ["profile_pref", "REGION"],
++    ["todofukenName", "REGION"],
++    ["profile_stateCode", "REGION"],
++    ["profile_city", "CITY"],
++    ["houseNumber", "BLOCK"],
++    ["town_chome", "TOWN_CHOME"],
++    ["profile.buildingName", "BUILDING"],
++    ["profile[telephone_number]", "PHONE"],
++    ["profile_phoneMobile", "PHONE"],
++    ["_mail", "EMAIL"],
++    ["eMail1", "EMAIL"],
++    ["profile[email_confirmation]", "EMAIL"],
++    ["mail_address_check", "EMAIL"],
++    ["mail:cf", "EMAIL"],
++    ["profileBirthdayYear", "BIRTH_YEAR"],
++    ["birthDay", "BIRTH_DAY"],
++    ["birthdate-y", "BIRTH_YEAR"],
++    ["birthdate-m", "BIRTH_MONTH"],
++    ["birthdate-d", "BIRTH_DAY"],
++    ["form_mail_widget", "UNKNOWN"],
++    ["emailing", "UNKNOWN"],
++    ["group_kana", "UNKNOWN"],
++    ["companyNameKana", "UNKNOWN"],
++    ["guardian_name", "UNKNOWN"],
++    ["fax_phone", "UNKNOWN"],
++    ["name01", "UNKNOWN"],
++    ["tel1", "UNKNOWN"],
++    ["addr2", "UNKNOWN"],
++    ["primaryAddress.addressLine2", "UNKNOWN"],
++  ] as [string, JevKind][])("reads bounded identifier %s", (name, kind) => {
++    expect(identifierKind(name)).toBe(kind);
++  });
++
++  it("requires compatible, agreeing hints and respects a more specific name component", () => {
++    expect(localKind(field({ name: "profile[family_name]", group: "氏名" }))).toBe("FAMILY");
++    expect(localKind(field({ caption: "姓", name: "profile[first_name]" }))).toBe("UNKNOWN");
++    expect(localKind(field({ name: "profile[email]", type: "number" }))).toBe("UNKNOWN");
++    expect(localKind(field({ name: "birthday", type: "tel" }))).toBe("BIRTHDATE");
++    expect(localKind(field({ name: "age", type: "tel" }))).toBe("AGE");
++    expect(localKind(field({ caption: "氏名", type: "tel" }))).toBe("UNKNOWN");
++  });
++
++  it("leaves search, login-email and an incompletely described address empty", () => {
++    expect(localKind(field({ htmlId: "postalForSearch", placeholder: "市区町村名を入力" }))).toBe(
++      "UNKNOWN",
++    );
++    expect(localKind(field({ name: "login_email" }))).toBe("UNKNOWN");
++    expect(localKind(field({ caption: "番地・アパート・部屋番号", htmlId: "form-street" }))).toBe(
++      "UNKNOWN",
++    );
++  });
++
++  it("keeps whole phone and name fields independent of split fields elsewhere", () => {
++    expect(refine(["TEXT", "TEXT", "TEXT"], ["PHONE", "UNKNOWN", "PHONE_1"])).toEqual([
++      "PHONE",
++      "UNKNOWN",
++      "PHONE_1",
++    ]);
++    expect(refine(["TEXT", "TEXT", "TEXT"], ["FULL_NAME", "EMAIL", "FAMILY"])).toEqual([
++      "FULL_NAME",
++      "EMAIL",
++      "FAMILY",
++    ]);
++  });
++
++  it("refines address ranges only against siblings in the same section", () => {
++    const kinds: JevKind[] = ["REGION", "ADDRESS_FULL", "BUILDING", "EMAIL", "ADDRESS_FULL"];
++    expect(refine(kinds.map(() => "TEXT"), kinds)).toEqual([
++      "REGION", "CITY_STREET", "BUILDING", "EMAIL", "ADDRESS_FULL",
++    ]);
++    const ranges: JevKind[] = ["REGION_CITY", "ADDRESS_NO_BUILDING", "BUILDING"];
++    expect(refine(ranges.map(() => "TEXT"), ranges)).toEqual([
++      "REGION_CITY", "STREET", "BUILDING",
++    ]);
++  });
 +});
 +
 +describe("Jev rendering", () => {
@@ -1288,6 +1483,75 @@ index 0000000..014e6dc
 +});
 +
 +describe("Jev planning", () => {
++  const kinds = (...fields: Partial<JevPageField>[]) =>
++    planRows(form(...fields), profile).map((row) => row.kind);
++
++  it("resolves only complete small numbered phone runs, including bracket indexes", () => {
++    for (const names of [
++      ["tel01", "tel02", "tel03"],
++      ["phone-number1", "phone-number2", "phone-number3"],
++      ["電話番号[data][0]", "電話番号[data][1]", "電話番号[data][2]"],
++    ]) {
++      expect(
++        kinds(...names.map((name, i) => ({ name, maxLength: 5, caption: i ? "" : "電話番号" }))),
++      ).toEqual(["PHONE_1", "PHONE_2", "PHONE_3"]);
++    }
++    expect(kinds({ name: "tel1" }, { name: "tel2" })).toEqual(["UNKNOWN", "UNKNOWN"]);
++    expect(kinds(...["tel1", "tel2", "tel3"].map((name) => ({ name, maxLength: 13 })))).toEqual([
++      "UNKNOWN",
++      "UNKNOWN",
++      "UNKNOWN",
++    ]);
++    expect(
++      kinds(
++        ...["tel1", "tel2", "tel3"].map((name, i) => ({
++          name,
++          maxLength: 4,
++          caption: i === 1 ? "郵便番号" : "",
++        })),
++      ),
++    ).toEqual(["UNKNOWN", "POSTAL", "UNKNOWN"]);
++    expect(kinds({ name: "tel1", maxLength: 13, caption: "携帯番号" })).toEqual(["PHONE"]);
++  });
++
++  it("partitions three numbered address lines against an earlier region field", () => {
++    const address = [1, 2, 3].map((n) => ({ name: `address${n}` }));
++    expect(kinds(...address)).toEqual(["REGION_CITY", "STREET", "BUILDING"]);
++    expect(kinds({ caption: "都道府県" }, { caption: "メール" }, ...address)).toEqual([
++      "REGION", "EMAIL", "REGION_CITY", "STREET", "BUILDING",
++    ]);
++    expect(kinds({ caption: "都道府県" }, ...address)).toEqual([
++      "REGION",
++      "CITY",
++      "STREET",
++      "BUILDING",
++    ]);
++    expect(kinds(...[1, 2, 3].map((n) => ({ htmlId: `addr${n}input` })))).toEqual([
++      "REGION_CITY",
++      "STREET",
++      "BUILDING",
++    ]);
++    expect(kinds({ name: "address1" }, { name: "address2" })).toEqual(["UNKNOWN", "UNKNOWN"]);
++    expect(kinds({ name: "address1", caption: "氏名" }, ...address.slice(1))).toEqual([
++      "FULL_NAME",
++      "UNKNOWN",
++      "UNKNOWN",
++    ]);
++  });
++
++  it("uses semantic family and given tokens even when given comes first", () => {
++    expect(
++      values(
++        form(
++          { name: "personGivenName" },
++          { name: "personFamilyName" },
++          { name: "personGivenNameKana" },
++          { name: "personFamilyNameKana" },
++        ),
++      ),
++    ).toEqual(["太郎", "試験", "タロウ", "シケン"]);
++  });
++
 +  it("fills the combined page as the fixture expects", () => {
 +    const fields = form(
 +      { caption: "お名前", placeholder: "例）山田\u3000太郎" },
@@ -1397,18 +1661,20 @@ index 0000000..014e6dc
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-model.ts b/apps/browser/src/autofill/jev/jev-model.ts
 new file mode 100644
-index 0000000..fc44417
+index 0000000..9668978
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.ts
-@@ -0,0 +1,346 @@
+@@ -0,0 +1,407 @@
 +// Classification of page fields: on-device rules first, Jev for everything they cannot decide.
 +// Jev receives only the page's own text about each field (labels, placeholders, names), never a
 +// profile value, the page URL or a password field.
 +import { JevDate, JevProfile, optionIndex, parseFormat, render } from "./jev-format";
 +import {
 +  bitCount,
++  ADDR_BUILDING,
 +  isAddress,
 +  isCompatible,
++  identifierKind,
 +  JevKind,
 +  JevShape,
 +  labelKind,
@@ -1665,10 +1931,36 @@ index 0000000..fc44417
 +/** On-device hints for a field, from its label, aria-label, placeholder, name, id and autocomplete. */
 +export function localKind(f: JevPageField): JevKind {
 +  const shape = shapeOf(f.type);
-+  const hints = [f.caption, f.ariaLabel, f.placeholder, f.name, f.htmlId, f.group]
++  // Search boxes and login-email identifiers do not establish a personal profile field.
++  const identifiers = `${f.name} ${f.htmlId}`.replace(/([a-z])([A-Z])/g, "$1_$2");
++  if (/(?:^|[_\s[.-])search(?:$|[_\s\].-])/iu.test(identifiers)) {
++    return "UNKNOWN";
++  }
++  const hints = [f.caption, f.ariaLabel, f.placeholder, f.group]
 +    .map(labelKind)
++    .concat([f.name, f.htmlId].map(identifierKind))
 +    .concat(f.autocomplete.split(/\s+/).filter(Boolean).map(labelKind));
-+  return localChoice(shape, hints);
++  const kind = localChoice(shape, hints);
++  if (
++    (kind === "EMAIL" && /(?:^|[_\s[.-])login(?:$|[_\s\].-])/iu.test(identifiers)) ||
++    (isAddress(kind) &&
++      !(maskOf(kind) & ADDR_BUILDING) &&
++      /建物|アパート|マンション|部屋|号室/u.test(f.caption))
++  ) {
++    return "UNKNOWN";
++  }
++  return kind;
++}
++
++/** Numbered identifiers need a complete, adjacent run before their parts are known. */
++function numberedField(f: JevPageField): { base: string; part: number } | null {
++  const raw = (f.name || f.htmlId).normalize("NFKC").toLowerCase();
++  const indexed = raw.match(/^(.*?)(?:\[data\])?\[([0-2])\]$/u);
++  if (indexed) {
++    return { base: indexed[1], part: Number(indexed[2]) + 1 };
++  }
++  const numbered = raw.match(/^(.*?)[_-]?0?([1-3])(?:input)?$/u);
++  return numbered ? { base: numbered[1], part: Number(numbered[2]) } : null;
 +}
 +
 +/**
@@ -1706,6 +1998,39 @@ index 0000000..fc44417
 +    sources.push("none");
 +    return "UNKNOWN" as JevKind;
 +  });
++  for (let i = 0; i + 2 < fields.length; i++) {
++    const run = fields.slice(i, i + 3);
++    const numbered = run.map(numberedField);
++    if (!numbered.every((n, part) => n?.base === numbered[0]?.base && n?.part === part + 1)) {
++      continue;
++    }
++    const base = identifierKind(numbered[0]!.base);
++    let parts: JevKind[];
++    if (base === "PHONE" && run.every((f) => f.maxLength > 0 && f.maxLength <= 6)) {
++      parts = ["PHONE_1", "PHONE_2", "PHONE_3"];
++    } else if (base === "ADDRESS_FULL") {
++      parts = [
++        chosen[i - 1] === "REGION" ? "CITY" : "REGION_CITY",
++        "STREET",
++        "BUILDING",
++      ];
++    } else {
++      continue;
++    }
++    if (
++      parts.every(
++        (kind, part) =>
++          (chosen[i + part] === "UNKNOWN" || (maskOf(kind) & ~maskOf(chosen[i + part])) === 0) &&
++          isCompatible(shapes[i + part], kind),
++      )
++    ) {
++      parts.forEach((kind, part) => {
++        chosen[i + part] = kind;
++        sources[i + part] = "local";
++      });
++      i += 2;
++    }
++  }
 +  const kinds = refine(shapes, chosen);
 +  return fields.map((field, i) => {
 +    const kind = kinds[i];
