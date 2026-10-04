@@ -1749,10 +1749,10 @@ index 0000000..fc44417
 +export { caption };
 diff --git a/apps/browser/src/autofill/jev/jev-page.spec.ts b/apps/browser/src/autofill/jev/jev-page.spec.ts
 new file mode 100644
-index 0000000..b1a23b4
+index 0000000..93b3452
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-page.spec.ts
-@@ -0,0 +1,236 @@
+@@ -0,0 +1,238 @@
 +/** @jest-environment-options {"url":"https://profile.example/form"} */
 +import { jevPage } from "./jev-page";
 +
@@ -1901,6 +1901,8 @@ index 0000000..b1a23b4
 +      event.isTrusted = trusted;
 +      impl(node)._dispatch(event);
 +    };
++    // Every record lands in the same millisecond, as on a fast machine; keys must still differ.
++    jest.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
 +    try {
 +      const snapshot = await collect();
 +      await jevPage({
@@ -1991,10 +1993,10 @@ index 0000000..b1a23b4
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-page.ts b/apps/browser/src/autofill/jev/jev-page.ts
 new file mode 100644
-index 0000000..a68c6b9
+index 0000000..ad12a2d
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-page.ts
-@@ -0,0 +1,354 @@
+@@ -0,0 +1,357 @@
 +export interface JevPageField {
 +  id: number;
 +  type: string;
@@ -2283,8 +2285,11 @@ index 0000000..a68c6b9
 +  if (storage && feedback.length) {
 +    const fill = crypto.randomUUID();
 +    const until = Date.now() + 30 * 60_000;
++    // The fill id plus a zero-padded sequence keeps keys unique within one millisecond.
++    let sequence = 0;
 +    const put = (record: Record<string, unknown>) => {
-+      const key = `jev.feedback.${String(Date.now())}.${crypto.randomUUID()}`;
++      const order = String(sequence++).padStart(6, "0");
++      const key = `jev.feedback.${String(Date.now())}.${fill}.${order}`;
 +      storage.set({ [key]: { v: 1, fill, ...record } }).catch((): void => {});
 +    };
 +    const text = (value: string) => value.replace(/\s+/g, " ").trim().slice(0, 200);
