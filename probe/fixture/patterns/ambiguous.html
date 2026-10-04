@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>判定が割れる欄</title>
+<style>body{font:18px system-ui;max-width:40rem;margin:1rem auto;padding:1rem}label{display:block;margin:.6rem 0}input{display:block;width:100%;font:inherit;padding:.35rem;box-sizing:border-box}button{font:inherit;padding:.6rem}output{display:block;padding:1rem}</style>
+<h1>判定が割れる欄</h1>
+<p>ダミー専用。送信機能はありません。3番目の欄は name が建物（address2）、ラベルが番地で、ローカル規則では決まりません。</p>
+<form id="fixture" onsubmit="event.preventDefault()">
+<label>都道府県<input name="pref"></label>
+<label>市区町村<input name="city"></label>
+<label>番地<input name="address2"></label>
+<label>建物名<input name="building"></label>
+<button type="button" id="verify">入力結果を検証</button>
+</form><output id="result">未検証</output>
+<script>
+// The conflicting field passes if it receives the street (a sensible kind) or stays empty
+// (UNKNOWN / low confidence). Receiving the building again would be a wrong answer.
+window.EXPECTED = {pref: '神奈川県', city: '横浜市中区', address2: ['検証町1-2-3', ''], building: 'ダミービル101'};
+</script><script src="check.js"></script></html>

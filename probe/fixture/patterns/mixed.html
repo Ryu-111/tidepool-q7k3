@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>混在入力パターン</title>
+<style>body{font:18px system-ui;max-width:40rem;margin:1rem auto;padding:1rem}label,.row{display:block;margin:.6rem 0}input{font:inherit;padding:.35rem;box-sizing:border-box}input.w{display:block;width:100%}.row input{width:7rem}button{font:inherit;padding:.6rem}output{display:block;padding:1rem}</style>
+<h1>混在入力パターン</h1>
+<p>ダミー専用。送信機能はありません。欄名は同じラベルの分割欄や、都道府県と分かれた住所です。</p>
+<form id="fixture" onsubmit="event.preventDefault()">
+<div class="row">氏名 <input name="f1" aria-label="氏名"> <input name="f2" aria-label="氏名"></div>
+<div class="row">フリガナ <input name="f3" aria-label="フリガナ"> <input name="f4" aria-label="フリガナ"></div>
+<div class="row">〒 <input name="f5" aria-label="郵便番号" type="tel" maxlength="3"> - <input name="f6" aria-label="郵便番号" type="tel" maxlength="4"></div>
+<label>都道府県<input class="w" name="f7"></label>
+<label>住所<input class="w" name="f8" placeholder="市区町村・番地"></label>
+<label>建物名<input class="w" name="f9"></label>
+<label>電話番号<input class="w" name="f10" type="tel" placeholder="03-1234-5678"></label>
+<button type="button" id="verify">入力結果を検証</button>
+</form><output id="result">未検証</output>
+<script>
+window.EXPECTED = {f1: '試験', f2: '太郎', f3: 'シケン', f4: 'タロウ', f5: '100', f6: '0001',
+  f7: '神奈川県', f8: '横浜市中区検証町1-2-3', f9: 'ダミービル101', f10: '090-0000-0000'};
+</script><script src="check.js"></script></html>

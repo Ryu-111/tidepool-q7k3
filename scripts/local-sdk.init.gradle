@@ -1,0 +1,20 @@
+// Use only the locally compiled SDK for this invocation, never GitHub Packages.
+settingsEvaluated { settings ->
+    def repositories = settings.dependencyResolutionManagement.repositories
+    repositories.removeAll { it.name == 'GitHubPackages (Bitwarden)' }
+    repositories.mavenLocal {
+        content { includeModule('com.bitwarden', 'sdk-android.dev') }
+    }
+}
+allprojects {
+    // Register after the project's own rules (app maps localSdk=true to sdk-android:LOCAL),
+    // so this substitution is the one that wins.
+    afterEvaluate {
+        configurations.configureEach {
+            resolutionStrategy.dependencySubstitution {
+                substitute(module('com.bitwarden:sdk-android'))
+                    .using(module('com.bitwarden:sdk-android.dev:3.0.0-jev-local-8b9fa3e2'))
+            }
+        }
+    }
+}

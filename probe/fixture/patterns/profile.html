@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>生年月日・性別・細分住所</title>
+<style>body{font:18px system-ui;max-width:40rem;margin:1rem auto;padding:1rem}label,.row{display:block;margin:.6rem 0}input,select{font:inherit;padding:.35rem;box-sizing:border-box}input.w{display:block;width:100%}.row input{width:4.5rem}button{font:inherit;padding:.6rem}output{display:block;padding:1rem}</style>
+<h1>生年月日・性別・細分住所</h1>
+<p>ダミー専用。送信機能はありません。</p>
+<form id="fixture" onsubmit="event.preventDefault()">
+<div class="row">生年月日
+  <select name="y" aria-label="生年月日"><option value="">年</option></select>
+  <select name="m" aria-label="生年月日"><option value="">月</option></select>
+  <select name="d" aria-label="生年月日"><option value="">日</option></select></div>
+<div class="row">性別
+  <label style="display:inline"><input type="radio" name="gender" value="m">男性</label>
+  <label style="display:inline"><input type="radio" name="gender" value="f">女性</label>
+  <label style="display:inline"><input type="radio" name="gender" value="n">回答しない</label></div>
+<label>年齢<input class="w" name="age" type="number"></label>
+<label>国・地域<select name="country"><option value="">選択</option><option>アメリカ</option><option>日本</option></select></label>
+<label>都道府県<select name="pref"><option value="">選択</option><option>東京都</option><option>神奈川県</option></select></label>
+<label>市・郡<input class="w" name="city1"></label>
+<label>区・町村<input class="w" name="city2"></label>
+<label>町名<input class="w" name="town"></label>
+<div class="row"><label style="display:inline"><input name="c1" maxlength="3">丁目</label>
+  <label style="display:inline"><input name="c2" maxlength="4">番</label>
+  <label style="display:inline"><input name="c3" maxlength="4">号</label></div>
+<label>建物名<input class="w" name="building"></label>
+<button type="button" id="verify">入力結果を検証</button>
+</form><output id="result">未検証</output>
+<script>
+const f = document.querySelector('#fixture');
+for (let y = 1950; y <= 2010; y++) f.y.add(new Option(y + '年（' + (y >= 1989 ? '平成' + (y - 1988 === 1 ? '元' : y - 1988) : '昭和' + (y - 1925)) + '年）', y));
+for (let m = 1; m <= 12; m++) f.m.add(new Option(String(m).padStart(2, '0'), m));
+for (let d = 1; d <= 31; d++) f.d.add(new Option(d + '日', d));
+const birth = new Date(1990, 3, 5), now = new Date();
+const age = now.getFullYear() - 1990 - (now < new Date(now.getFullYear(), 3, 5) ? 1 : 0);
+window.EXPECTED = {y: '1990年（平成2年）', m: '04', d: '5日', gender: '', age: String(age),
+  country: '日本', pref: '神奈川県', city1: '横浜市', city2: '中区', town: '検証町',
+  c1: '1', c2: '2', c3: '3', building: 'ダミービル101'};
+</script><script src="check.js"></script></html>

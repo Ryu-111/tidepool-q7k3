@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>和暦・勤務先パターン</title>
+<style>body{font:18px system-ui;max-width:40rem;margin:1rem auto;padding:1rem}label,.row{display:block;margin:.6rem 0}input,select{font:inherit;padding:.35rem;box-sizing:border-box}input.w{display:block;width:100%}.row input{width:4rem}button{font:inherit;padding:.6rem}output{display:block;padding:1rem}</style>
+<h1>和暦・勤務先パターン</h1>
+<p>ダミー専用。送信機能はありません。</p>
+<form id="fixture" onsubmit="event.preventDefault()">
+<label>お名前<input class="w" name="name"></label>
+<div class="row">生年月日
+  <select name="gengo"><option value="">元号</option><option>昭和</option><option>平成</option><option>令和</option></select>
+  <select name="birth_year"><option value="">年</option></select>
+  <input name="birth_month" maxlength="2">月 <input name="birth_day" maxlength="2">日</div>
+<label>会社名<input class="w" name="company"></label>
+<label>部署名<input class="w" name="dept"></label>
+<label>役職<select name="job_title"><option value="">選択</option><option>一般</option><option>主任</option><option>課長</option></select></label>
+<button type="button" id="verify">入力結果を検証</button>
+</form><output id="result">未検証</output>
+<script>
+const f = document.querySelector('#fixture');
+f.birth_year.add(new Option('元年', 1));
+for (let y = 2; y <= 64; y++) f.birth_year.add(new Option(y + '年', y));
+window.EXPECTED = {name: '試験 太郎', gengo: '平成', birth_year: '2年', birth_month: '4', birth_day: '5',
+  company: 'ダミー株式会社', dept: '検証部', job_title: '主任'};
+</script><script src="check.js"></script></html>

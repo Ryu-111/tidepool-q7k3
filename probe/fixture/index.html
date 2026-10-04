@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jev・ダミー入力の検証</title>
+<style>body{font:18px system-ui;max-width:40rem;margin:1rem auto;padding:1rem}label{display:block;margin:.65rem 0}input{display:block;font:inherit;max-width:100%;box-sizing:border-box;width:100%;padding:.4rem}input[hidden]{display:none!important}button{font:inherit;padding:.6rem}output{display:block;padding:1rem;white-space:pre-wrap}</style>
+<h1>Jev・ダミー入力の検証</h1>
+<p>送信機能のないローカル専用フォームです。実際の個人情報を入力しないでください。</p>
+<form id="fixture" onsubmit="event.preventDefault()">
+<label>姓<input name="family-name" autocomplete="family-name" placeholder="姓"></label>
+<label>名<input name="given-name" autocomplete="given-name" placeholder="名"></label>
+<label>郵便番号<input name="postal-code" autocomplete="postal-code" placeholder="郵便番号"></label>
+<label>番地<input name="address-line1" autocomplete="address-line1" placeholder="番地"></label>
+<label>パスワード（ダミー専用）<input name="password" type="password" autocomplete="current-password"></label>
+<label>既存のメール<input name="email" type="email" value="do-not-overwrite@example.invalid" autocomplete="email"></label>
+<input name="hidden" type="text" autocomplete="email" hidden>
+<button type="button" id="verify">入力結果を検証</button>
+</form><output id="result">未検証</output>
+<script>
+const expected={'family-name':'試験','given-name':'太郎','postal-code':'1000001','address-line1':'検証町1-2-3',password:'DUMMY_ONLY_not_a_credential'};
+document.querySelector('#verify').onclick=()=>{
+  const f=document.querySelector('#fixture');
+  const passed=Object.entries(expected).every(([k,v])=>f.elements[k].value===v)
+    &&f.elements.email.value==='do-not-overwrite@example.invalid'&&f.elements.hidden.value===''
+    &&f.elements.hidden.getClientRects().length===0;
+  document.querySelector('#result').textContent=passed?'PASS: 5項目一括入力・既存値保持・非表示欄未入力':'FAIL: 入力未完了';
+};
+</script></html>
