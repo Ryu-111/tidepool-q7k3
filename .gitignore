@@ -1,18 +1,40 @@
+# Upstream working copies (separate Git repositories)
 android/
-sdk-internal/
 clients/
+sdk-internal/
 reference/
-probe/.build/
-__pycache__/
-*.log
+
+# Secrets and signing material
+.env
+.env.*
+*.pem
+*.key
 *.jks
 *.keystore
-.env
+*credentials*
 user.properties
 
-.tools/
+# Design records and private notes (not published)
+adr/
+docs/adr/
+CONTEXT.md
+
+# Collected third-party form data (structure only, kept local)
+probe/corpus/raw/
+probe/corpus/excluded/
+probe/corpus/index.tsv
+probe/corpus/eval/*.tsv
+probe/corpus/eval/usable.txt
+
+# Build outputs and local tools
+.build/
+probe/.build/
 chrome-dist/
-.DS_Store
+.tools/
+__pycache__/
+*.log
+
+# Local agent and OS files
 .claude/settings.local.json
 .jev-off
-.build/
+.DS_Store
