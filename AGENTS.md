@@ -1,90 +1,91 @@
-# jev-autofill 開発ルール（Claude Code / Codex 共通）
+# jev-autofill development rules (Claude Code / Codex)
 
-Bitwarden（Chrome拡張・Android）を個人用に改修し、本人プロフィールとサイト別ログインを一括入力する。合意した製品の動作は [README.md](README.md)、作業分担と経緯は [COORDINATION.md](COORDINATION.md)、検証範囲は [VERIFICATION.md](VERIFICATION.md)、Chrome拡張は [CHROME.md](CHROME.md)、probeは [probe/README.md](probe/README.md)。
+Personal Bitwarden modification (Chrome extension and Android) that bulk-fills a Japanese profile and a site login. Product behavior: [README.md](README.md). Architecture: [docs/architecture.md](docs/architecture.md). Ownership and open issues: [COORDINATION.md](COORDINATION.md). Verified scope: [VERIFICATION.md](VERIFICATION.md). Chrome: [CHROME.md](CHROME.md). Probe: [probe/README.md](probe/README.md).
 
-## 作業の入口
+## Getting started
 
-- 回答・ドキュメントは日本語。コード・識別子・コミットメッセージは英語（Conventional Commits）。
-- 最初に README.md の「合意した製品の動作」と COORDINATION.md の末尾（最新の分担と未解決事項）を読む。
-- シェルは `rtk` 経由。正確な出力・終了コードが必要なら `rtk proxy <command>`。
+- Everything committed (docs, comments, identifiers, commit messages) is in English; use Conventional Commits. Japanese stays only where it is test data or matched UI text (form labels, fixtures, probe app strings).
+- Read the "Rules" in README.md and the open issues in COORDINATION.md first.
+- Run shell commands through `rtk`; use `rtk proxy <command>` when exact output or exit codes matter.
 
-## リポジトリ構成
+## Repository layout
 
-| パス | 内容 | Git |
+| Path | Contents | Git |
 | --- | --- | --- |
-| `/`（ルート） | ドキュメント、`probe/`、`scripts/` | このリポジトリ |
-| `android/` | Bitwarden Android。Jev実装は `app/src/main/kotlin/com/x8bit/bitwarden/data/autofill/jev/` | 独立した作業コピー、`jev-autofill-prototype` |
-| `clients/` | Bitwarden clients。Jev実装は `apps/browser/src/autofill/jev/` と `apps/browser/src/autofill/popup/jev/` | 独立した作業コピー、`jev-autofill-prototype` |
-| `sdk-internal/` | 公式SDK `8b9fa3e2`（ローカルビルド用） | 独立、編集しない |
-| `reference/` | コミュニティのAPIサンプル。製品へ組み込まない | 独立、編集しない |
+| `/` | Docs, `probe/`, `scripts/` | this repository |
+| `android/` | Bitwarden Android; Jev code in `app/src/main/kotlin/com/x8bit/bitwarden/data/autofill/jev/` | separate working copy, `jev-autofill-prototype` |
+| `clients/` | Bitwarden clients; Jev code in `apps/browser/src/autofill/jev/` and `apps/browser/src/autofill/popup/jev/` | separate working copy, `jev-autofill-prototype` |
+| `sdk-internal/` | Official SDK `8b9fa3e2` for the local build | separate, do not edit |
+| `reference/` | Community API samples; never ship | separate, do not edit |
 
-- `android/` と `clients/` には未コミットの変更がある。commit・stash・reset・ブランチ切り替えは依頼がある場合だけ。ルートの `.gitignore` で除外されているので、ルートで `git status` しても変更は見えない。各ディレクトリで確認する。
-- 公式コードの既存の動作は引数の既定値などで維持し、Jev経路を追加する形で変更する。
+- `android/` and `clients/` hold uncommitted work. Commit, stash, reset or switch branches there only when asked. They are ignored by the root repository, so run `git status` inside each.
+- Keep upstream behavior intact (default arguments etc.) and add the Jev path alongside it.
 
-## 担当分担
+## Ownership
 
-- 最新の分担は COORDINATION.md の末尾に従う。相手の担当範囲を編集するのは、ユーザーの依頼がある場合だけ。
-- 作業結果は COORDINATION.md の**末尾に追記**する（同じ箇所の同時編集を避ける）。検証結果の詳細は VERIFICATION.md に書く。
-- エミュレーターの操作は同時に1エージェントだけ。
+- Follow the current ownership in COORDINATION.md. Edit the other agent's area only when the user asks.
+- Record results at the end of COORDINATION.md; put verification details in VERIFICATION.md.
+- Only one agent drives the emulator at a time.
 
-## Jev照会の境界（製品の必須条件）
+## Jev request boundary (product requirement)
 
-- 接続先は `https://openrouter.ai/api/v1/systemone`、model `jev-latest`、質問は `choice` 型に固定。別モデルへのフォールバックはしない。リダイレクト拒否・`credentials: "omit"`・応答サイズ上限・タイムアウトを外さない。
-- 端末のルールを優先し、決まらない（UNKNOWN の）欄だけを照会する。照会対象がなければ通信しない。1要求24問まで。質問キーは `field_no_N`（ページの name と衝突させない）。
-- 送ってよいのは、ページ側にある欄の説明（ラベル・aria-label・直前の文字列・legend・placeholder・name・id・autocomplete・type・maxlength・選択肢、各200字以内）だけ。
-- **送らないもの**: プロフィールの実値、ログイン情報、ページのURL、パスワード欄、APIキー（認証ヘッダー以外）、本文・画像・履歴。`AutofillView.Data` と `CipherView` を直列化しない。
-- 応答は厳密に検証し、一つでも不正なら応答全体を捨てる。確信度0.6未満は使わない。キーなし・通信失敗時は端末ルールだけで入力する。
-- 入力の条件: 保管庫の解錠、登録済みHTTPSオリジンの照合、入力直前の欄の再検証。非表示欄・別オリジンのiframeに入れない。既存値を無断で上書きしない。自動送信しない。OTP（`totpManager`、クリップボード）を呼ばない。入力禁止リスト（`JevBlocklist`）はJev候補にも適用する。
-- 追加プロフィールは既存Cipherの暗号化カスタムフィールドに保存し、キーは両クライアントで `JevCustomFieldKeys.kt` の `jev.*` を共有する。独自の暗号化・同期・SDKレコードは作らない。
-- probe の許可条件（`com.android.chrome` / `http` / `localhost`）は試験専用。製品へコピーしない。
+- Endpoint `https://openrouter.ai/api/v1/systemone`, model `jev-latest`, `choice` questions only. No fallback model. Keep redirect rejection, `credentials: "omit"`, a response size cap and a timeout.
+- On-device rules first; ask only about fields they leave UNKNOWN; no request when there is nothing to ask. At most 24 questions per request. Question keys are `field_no_N` (never page names).
+- Allowed: the page's own text about each field (label, aria-label, preceding text, legend, placeholder, name, id, autocomplete, type, maxlength, option labels), each clipped to 200 characters.
+- **Never sent**: profile values, login data, the page URL, password fields, the API key (outside the auth header), page body, images, history. Never serialize `AutofillView.Data` or `CipherView`.
+- Validate responses strictly; one malformed answer discards the whole reply. Ignore confidence below 0.6. Without a key or on failure, fill with on-device rules only.
+- Filling requires an unlocked vault, a registered HTTPS origin match and re-validation right before filling. Skip hidden fields and cross-origin iframes. Never overwrite existing values silently. Never auto-submit. Never call OTP code (`totpManager`, clipboard). Apply the autofill blocklist (`JevBlocklist`) to Jev suggestions too.
+- Extra profile data lives in encrypted custom fields; both clients share the `jev.*` keys in `JevCustomFieldKeys.kt`. No custom encryption, sync or SDK records.
+- The probe's test-only allowances (`com.android.chrome` / `http` / `localhost`) must never reach product code.
 
-## 秘密情報
+## Secrets
 
-- ルートの `.env`（`OPENROUTER_API_KEY=` の1行、権限600）は読まない・表示しない・コピーしない。接続確認は `rtk proxy python3 probe/live_check.py`（キーと応答本文を出力しない）。
-- キーをAPK・fixture・ログ・テスト・ドキュメントに入れない。保管庫の実データを使わず、試験は合成データ（ダミーID「Jev試験」など）で行う。
-- 実API（OpenRouter）を叩く試験は課金されるため、ユーザーの依頼があるときだけ実行する。通常の単体テストはモック／ローカル通信。
-- `*.jks`、`*.keystore`、`user.properties` は読まない。
+- Never read, print or copy the root `.env` (`OPENROUTER_API_KEY=`, mode 600). Check connectivity with `rtk proxy python3 probe/live_check.py`, which prints neither the key nor the response body.
+- Keep keys out of APKs, fixtures, logs, tests and docs. Use synthetic data only (e.g. the dummy identity "Jev試験"), never real vault data.
+- Live OpenRouter calls cost money; run them only when the user asks. Unit tests use mocks or local servers.
+- Do not read `*.jks`, `*.keystore` or `user.properties`.
 
-## コマンド
+## Commands
 
 ```sh
-# probe（ルートから）
-rtk proxy python3 probe/build.py                          # JVMポリシー試験 + APK
+# probe (from the root)
+rtk proxy python3 probe/build.py                          # JVM policy tests + APK
 (cd probe && rtk proxy python3 -m unittest -v test_live_check.py test_emulator_key.py)
-PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 rtk proxy python3 probe/smoke.py   # 端末E2E（LOCAL）
+PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 rtk proxy python3 probe/smoke.py   # device E2E (LOCAL)
 
-# Android（android/ で）
+# Android (in android/)
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ANDROID_HOME=$HOME/Library/Android/sdk \
   rtk proxy ./gradlew --offline --no-daemon --max-workers=2 -I ../scripts/local-sdk.init.gradle \
   :app:testStandardDebugUnitTest --tests '*Jev*Test'
-# 同じ環境変数で :app:detekt / :app:assembleStandardDebug
+# same environment for :app:detekt and :app:assembleStandardDebug
 
-# Chrome拡張（clients/ で。Node は ../.tools/node-v24.17.0-darwin-arm64/bin を PATH の先頭に）
+# Chrome extension (in clients/, with ../.tools/node-v24.17.0-darwin-arm64/bin first on PATH)
 rtk proxy npx jest --config apps/browser/jest.config.js --runInBand apps/browser/src/autofill/jev apps/browser/src/autofill/popup/jev
 rtk proxy npx eslint apps/browser/src/autofill/jev apps/browser/src/autofill/popup/jev
 rtk proxy npx tsc --noEmit -p apps/browser/tsconfig.json
-rtk proxy python3 ../scripts/build-chrome.py              # 本番モードでビルド・ZIP（約15分）
+rtk proxy python3 ../scripts/build-chrome.py              # production build + ZIP (~15 min)
 ```
 
-- SDKのローカルビルド: `rtk proxy python3 scripts/build-local-sdk.py`（GitHubトークンは使わない）。
-- エミュレーターは `-gpu swiftshader_indirect -feature -Vulkan -no-window` が安定。試験後はエミュレーターを止め、自動入力サービスを元に戻す。
+- Local SDK build: `rtk proxy python3 scripts/build-local-sdk.py` (no GitHub token).
+- Stable emulator flags: `-gpu swiftshader_indirect -feature -Vulkan -no-window`. Afterwards stop the emulator and restore the autofill service.
 
-## 既知の落とし穴
+## Known pitfalls
 
-- `chrome.scripting.executeScript` に渡す関数（`jevPage`）を `async` にしない。ビルド後に `__awaiter` を参照して実行時に失敗する。`jev-page.spec.ts` の `new Function` 再構築試験を残す。
-- `doAutoFill` の `didAutofill` は送信を始めた結果で、入力成功の確認ではない。E2EはDOMの値で判定する。
-- Chrome は `<input type=radio>` を Android 自動入力へ渡さない。郵便番号から住所を補完するページは、一括入力の後に住所欄を上書きすることがある。
+- The function passed to `chrome.scripting.executeScript` (`jevPage`) must not be `async`; the build turns it into `__awaiter` calls that fail in the page. Keep the `new Function` rebuild test in `jev-page.spec.ts`.
+- `didAutofill` from `doAutoFill` means a fill was dispatched, not that it succeeded; E2E checks read DOM values.
+- Chrome does not pass `<input type=radio>` to Android autofill. Postal-code widgets may rewrite address fields after a bulk fill.
 
-## 検証と報告
+## Verification and reporting
 
-- 変更した振る舞いと失敗経路を最小のテストで確認してから完了とする。Kotlin（detekt・Gradle）はフックで検査されないので手動で実行する。
-- 次を混同しない: 単体テスト／端末E2E、LOCAL／`JEV LIVE（通信なし）`／Jevへの実照会、エミュレーター／実機、localhost／HTTPS実サイト。未確認の範囲は未確認と書く。
+- CI (`.github/workflows/probe.yml`) runs the probe Python tests and JVM policy tests on push and PRs; `android/` and `clients/` are not covered.
+- Test the changed behavior and its failure paths before calling it done. Kotlin (detekt, Gradle) is not covered by hooks; run it manually.
+- Keep these apart: unit test vs device E2E, LOCAL vs `JEV LIVE (no request)` vs a real Jev query, emulator vs physical device, localhost vs real HTTPS sites. State what is unverified.
 
-## 開発ハーネス（jh / jev-router）との関係
+## Development harness (jh / jev-router)
 
-`~/development/jev-router` の `jh` がグローバルフック（`~/.claude/settings.json`）としてこのリポジトリでも動く。
+Global hooks from `jh` (`~/development/jev-router`) run in this repository too.
 
-- PreToolUse(Agent): Jevがサブエージェントのモデルを選ぶ。UserPromptSubmit: モデル変更を提案することがある。
-- PostToolUse: 編集したファイルを Prettier で整形（`clients/` の設定を使う）。Stop: 編集した TS/JS に ESLint を実行し、通れば Jev が完了を判定する。未完了と判定されると差し戻される。
-- これらは依頼文（最大8000字）・最後の応答（最大4000字）・編集したファイル名を OpenRouter 経由で Jev に送り、`~/.jev/ledger` に本文を7日保存する。プロンプトや応答に秘密情報・保管庫データを書かない。
-- リポジトリ直下に `.jev-off` を置くと Jev への送信と記録が止まる。Stop フックだけ止めるときは `JH_STOP_HOOK=off`。
+- PreToolUse(Agent): Jev picks the subagent model. UserPromptSubmit: may suggest a model switch.
+- PostToolUse: formats edited files with Prettier (using `clients/` config). Stop: runs ESLint on edited TS/JS, then Jev judges completion and may send the turn back.
+- These send the request (up to 8000 chars), the last reply (up to 4000 chars) and edited file names to Jev via OpenRouter, and keep text in `~/.jev/ledger` for 7 days. Never put secrets or vault data in prompts or replies.
+- An empty `.jev-off` at the root stops all Jev traffic and logging; `JH_STOP_HOOK=off` disables only the Stop hook.

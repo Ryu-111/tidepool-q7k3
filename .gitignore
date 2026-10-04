@@ -29,6 +29,7 @@ probe/corpus/eval/usable.txt
 # Build outputs and local tools
 .build/
 probe/.build/
+probe/build/
 chrome-dist/
 .tools/
 __pycache__/

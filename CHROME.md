@@ -1,49 +1,38 @@
-# PC向けChrome拡張の検証版
+# Chrome extension (personal development build)
 
-Bitwarden OSSの改修版です。既存の暗号化保管庫を利用し、独自のパスワード保存方式は追加していません。Chrome Web Storeへの公開版ではありません。
+Modified Bitwarden OSS browser extension. It reuses the existing encrypted vault and adds no password storage of its own. Not published to the Chrome Web Store.
 
-## 使い方
+## Install
 
-1. `chrome://extensions` を開き、デベロッパーモードから「パッケージ化されていない拡張機能を読み込む」を選ぶ。
-2. `/Users/ryu/development/jev-autofill/clients/apps/browser/build` を指定する。通常のBitwardenと区別できる名前・拡張IDになる。
-3. 検証用の保管庫へログインし、プロフィール（Identity）と必要ならサイト別ログインを用意する。
-4. HTTPSのフォームを開き、この拡張の保管庫画面にある「Jev：プロフィールとログイン情報を一括入力」を選ぶ。
-5. プロフィール・ログインを選び「入力欄を確認」。入力する欄をチェックしてから「選んだ欄に入力」。フォームの送信は本人が行う。
+1. Build: `rtk proxy python3 scripts/build-chrome.py` (Node 24.17+ and npm 11; dependencies from `npm ci --ignore-scripts` in `clients/`; the build prefers the Node runtime in `.tools/`). Output: `chrome-dist/jev-autofill-chrome/` and `chrome-dist/jev-autofill-chrome.zip`.
+2. In `chrome://extensions`, enable Developer mode and load `chrome-dist/jev-autofill-chrome/` unpacked. It has its own name and ID, separate from the store extension.
+3. Log in to a test vault and prepare an Identity (and optionally a login for the site).
 
-入力済みの欄はチェックした場合だけ置換する。どの欄も最初は未選択。入力直前にページ・欄・既存値を再確認し、変更されていれば中止する。郵便番号ウィジェット等による変更は入力後1秒時点で検出し、勝手に再入力しない。これより遅い変更は検出できないため、送信前にページ上の内容を確認する。
+## Use
 
-パスワードはHTTPSオリジン（スキーム・ホスト・ポート）の一致を必須とする。Never・正規表現による照合は使わず、Exact・StartsWithの追加制約も維持する。パスワード再認証のある項目は既存の再認証を経由する。パスワード本体は画面では伏字にし、モデルへ送らない。
+1. Open an HTTPS form and choose "Jev" from the extension's vault screen.
+2. If the identity is known (the last one used, or the only one), the extension fills immediately; choosing another identity refills.
+3. It fills every empty field it can classify. Filled fields are never overwritten. The password is filled only when a login is selected. Nothing is submitted.
+4. Review the "filled" / "not filled" lists and submit the form yourself.
+
+Fields are re-validated right before filling (page, frame, HTTPS origin, visibility, type, current value). Only fields visible on screen are targeted; tiny, transparent, clipped or covered fields are skipped, so scroll and reopen for long forms. Changes by postal-code widgets are detected about one second after filling and are not re-filled automatically.
+
+Passwords require an exact HTTPS origin match (scheme, host, port); Exact/StartsWith URI rules still apply, Never and regex matching are not used, and items with password re-prompt go through the existing re-prompt.
 
 ## Jev / OpenRouter
 
-ローカルで分類できる欄はそのまま処理する。複数の分類候補がある欄だけ、展開した「曖昧な欄をJevに照会」から1回の通信を実行できる。APIキーはその画面で入力し、メモリだけに保持する。閉じる・ロック・アカウント切替で破棄する。`.env` やAPIキーを拡張ファイルへ埋め込まない。
+- Optional. Save an OpenRouter key under "Jev settings"; it is kept in this extension's `chrome.storage.local` only. Without a key, or on any failure, only the on-device rules are used.
+- Only fields the on-device rules leave UNKNOWN are sent, as the page's own text about each field (label, aria-label, preceding text, legend, placeholder, name, id, autocomplete, type, maxlength, option labels). Profile values, the URL and password fields are never sent.
+- Fields classified by Jev are marked [Jev] in the result list.
 
-送信するのは欄番号と固定語彙による分類候補だけ。URL、画像、本文、ラベル原文、氏名・住所・既存値、パスワードは送信しない。失敗・低確信度・不正応答は未入力とし、自動送信はしない。HTTP、別フレーム、ラジオボタン、Shadow DOM、独自部品は初版の対象外。
+## Profile fields
 
-## プロフィールの互換性
+Standard name, address, phone and email come from the Bitwarden Identity. Extra fields are custom fields shared with Android:
 
-標準の姓名・住所・電話・メールはBitwardenのIdentityを利用。以下はAndroid版と共通のカスタムフィールド名。
+`jev.family_kana`, `jev.given_kana`, `jev.municipality`, `jev.ward`, `jev.town`, `jev.chome`, `jev.ban`, `jev.go`, `jev.birthdate` (YYYY-MM-DD), `jev.gender` (female/male/other), `jev.department`, `jev.job_title`
 
-`jev.family_kana`, `jev.given_kana`, `jev.municipality`, `jev.ward`, `jev.town`, `jev.chome`, `jev.ban`, `jev.go`, `jev.birthdate`（YYYY-MM-DD）, `jev.gender`（female/male/other）, `jev.department`, `jev.job_title`
+Missing data is never guessed.
 
-未登録の情報は推測しない。氏名・ふりがな、郵便番号2欄、ハイフン付き電話番号の3欄、都道府県select、まとめた住所と別欄の住所要素などに対応。Android版の全表記パターンを移植した段階ではない。
+## Not supported
 
-## ビルドと検証
-
-Node 24.17以降・npm 11と、clients/ の `npm ci --ignore-scripts` で導入した依存を使用する。手元ではプロジェクトの `.tools/` に公式Nodeランタイムを配置。
-
-```
-rtk proxy python3 scripts/build-chrome.py
-```
-
-拡張フォルダーと `chrome-dist/jev-autofill-chrome.zip` を生成する。初期開発設定のlocalhostサーバー固定は解除し、通常のアカウント接続先を選べる。Chromeへのインストールや既存保管庫の変更はビルド処理に含めない。
-
-Jest: `jev-page.spec.ts`（jsdomでの入力・非表示・変化・送信なし）、`jev-policy.spec.ts`（分類・書式・情報制限・応答検証）、`jev.component.spec.ts`（解錠・再認証・禁止サイト・ページ変更）。検証範囲と最終結果は `VERIFICATION.md` を参照。
-
-入力確定直前に保管庫を再読込し、選択項目の削除・アーカイブ・値の変更・再認証設定の変更・ログイン先の変更も確認します。変更がある場合は準備からやり直します。
-
-## Claudeレビュー後の変更
-
-入力対象は現在画面内に見えている欄に限定し、極小・薄すぎる・クリップされた欄や中央が他の要素で覆われた欄を除外します。長いフォームはスクロールしてから再度「入力欄を確認」を行ってください。すべての視覚的な偽装を検出できる保証ではありません。
-
-郵便番号の分割は隣接する3桁・4桁の欄、電話番号の分割は隣接する最大4桁以内の3欄で保存済みの各部分が収まる場合に限定します。それ以外は登録値全体を候補にし、長さが収まらない欄は入力しません。住所の別欄に入力できない要素は、まとめた住所欄から除去しません。
+HTTP pages, other frames, radio buttons, Shadow DOM, custom widgets, filling on page load without opening the popup.
