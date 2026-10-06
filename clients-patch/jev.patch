@@ -120,10 +120,10 @@ index 0000000..19627ee
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-format.ts b/apps/browser/src/autofill/jev/jev-format.ts
 new file mode 100644
-index 0000000..ef395f1
+index 0000000..7bf9093
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-format.ts
-@@ -0,0 +1,616 @@
+@@ -0,0 +1,709 @@
 +// Value rendering for the Jev bulk fill, ported from the Android JevFormat / JevFormatter /
 +// JevProfileMapper. Page text read here never leaves the extension.
 +import type { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
@@ -249,7 +249,10 @@ index 0000000..ef395f1
 +/** How a field wants its value written; null properties mean "no evidence". */
 +export interface JevFormat {
 +  hyphen: boolean | null;
++  /** Width of ASCII letters, digits and punctuation. */
 +  fullWidth: boolean | null;
++  /** Kana width is independent of ASCII width; generic 半角 does not narrow kana. */
++  kanaWidth: boolean | null;
 +  hiragana: boolean;
 +  nameSeparator: string | null;
 +  dateSeparator: string | null;
@@ -268,16 +271,17 @@ index 0000000..ef395f1
 +const dateCompact = /^([0-9]{8}|yyyymmdd)$/i;
 +const dateKanjiExample = /([0-9]+|y+)年([0-9]+|m+)月([0-9]+|d+)日/i;
 +const paddedPart = /^(0[0-9]|mm|dd)$/i;
-+const noHyphen = /ハイフン(なし|無し|不要|を除く|を入れない)/;
++const noHyphen = /ハイフン(?:は|が)?(なし|無し|不要|を除く|を入れない)/;
 +const withHyphen = /ハイフン(あり|有り|必須|を含|を入れ)/;
 +const eraWords = /(和暦|昭和|平成|令和)/;
 +const examplePrefix = /^(例|例え?ば)?[:：)）]?\s*/u;
 +
-+/** Reads the format from [texts] (labels, placeholders) and the field's [maxLength]. */
++/** Reads constraints in priority order (nearest text first). */
 +export function parseFormat(texts: string[], maxLength: number): JevFormat {
 +  let f: JevFormat = {
 +    hyphen: null,
 +    fullWidth: null,
++    kanaWidth: null,
 +    hiragana: false,
 +    nameSeparator: null,
 +    dateSeparator: null,
@@ -287,14 +291,33 @@ index 0000000..ef395f1
 +    blockKanji: false,
 +    maxLength: maxLength > 0 ? maxLength : -1,
 +  };
-+  for (const raw of texts.filter((t) => t && t.length <= 128)) {
++  for (const raw of texts
++    .filter(Boolean)
++    .map((t) => t.slice(0, 256))
++    .reverse()) {
 +    const text = raw.trim();
 +    const folded = text.normalize("NFKC");
++    for (const note of folded.matchAll(
++      /(全角|半角)\s*(カタカナ|ひらがな|カナ|かな|漢字|英数字|英数|英字|数字)?/gu,
++    )) {
++      const full = note[1] === "全角";
++      if (!note[2] || /英|数字/u.test(note[2])) {
++        f.fullWidth = full;
++      }
++      if (/カタカナ|ひらがな|カナ|かな|漢字/u.test(note[2] ?? "") || (!note[2] && full)) {
++        f.kanaWidth = full;
++      }
++    }
++    const kanaNote = folded.match(
++      /半角\s*(?:カタカナ|カナ)|カタカナ|フリガナ|カナ|ひらがな|ふりがな|かな/u,
++    );
++    if (kanaNote) {
++      f.hiragana = /ひらがな|ふりがな|かな/u.test(kanaNote[0]);
++      f.kanaWidth = !kanaNote[0].startsWith("半角");
++    }
 +    f = {
 +      ...f,
 +      hyphen: noHyphen.test(folded) ? false : withHyphen.test(folded) ? true : f.hyphen,
-+      fullWidth: folded.includes("半角") ? false : folded.includes("全角") ? true : f.fullWidth,
-+      hiragana: f.hiragana || folded.includes("ふりがな") || folded.includes("ひらがな"),
 +      era: f.era || eraWords.test(folded),
 +      blockKanji: f.blockKanji || (folded.includes("丁目") && folded.includes("番")),
 +    };
@@ -325,7 +348,9 @@ index 0000000..ef395f1
 +      f = {
 +        ...f,
 +        nameSeparator: f.nameSeparator ?? example.match(nameExample)?.[1] ?? null,
-+        hiragana: f.hiragana || (hiraganaText.test(example) && example.length > 1),
++        hiragana: kanaNote
++          ? f.hiragana
++          : (hiraganaText.test(example) && example.length > 1) || f.hiragana,
 +      };
 +    }
 +  }
@@ -383,12 +408,84 @@ index 0000000..ef395f1
 +/** Full-width katakana to half-width, e.g. ダミー to ﾀﾞﾐｰ. */
 +export const toHalfWidthKana = (v: string) => [...v].map((c) => halfKana.get(c) ?? c).join("");
 +
-+const kana = (katakana: string, f: JevFormat) =>
++const fullKana = (v: string) => v.replace(/[｡-ﾟ]+/gu, (s) => s.normalize("NFKC"));
++export const toHalfWidthAscii = (v: string) =>
++  v.replace(/[！-～\u3000]/gu, (c) =>
++    c === "\u3000" ? " " : String.fromCharCode(c.charCodeAt(0) - 0xfee0),
++  );
++const toKatakana = (v: string) =>
++  fullKana(v).replace(/[ぁ-ゖ]/gu, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
++const toHiragana = (v: string) =>
++  fullKana(v).replace(/[ァ-ヶ]/gu, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
++const kana = (value: string, f: JevFormat) =>
 +  f.hiragana
-+    ? katakana.replace(/[ァ-ヶ]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0x60))
-+    : f.fullWidth === false
-+      ? toHalfWidthKana(katakana)
-+      : katakana;
++    ? toHiragana(value)
++    : f.kanaWidth === false
++      ? toHalfWidthKana(toKatakana(value))
++      : toKatakana(value);
++const width = (value: string, f: JevFormat, full: boolean) => {
++  if (f.kanaWidth === true) {
++    value = fullKana(value);
++  } else if (f.kanaWidth === false) {
++    value = toHalfWidthKana(value);
++  }
++  return full ? toFullWidth(value) : f.fullWidth === false ? toHalfWidthAscii(value) : value;
++};
++
++/** Apply local input hints, then choose the first complete pattern match. */
++export function constrainedValue(
++  value: string | null,
++  pattern: string | undefined,
++  inputmode: string | undefined,
++  maxLength: number,
++  alternatives: (string | null)[] = [],
++): string | null {
++  if (value === null) {
++    return null;
++  }
++  if (/^(numeric|tel|email)$/iu.test(inputmode ?? "")) {
++    value = toHalfWidthAscii(value);
++  }
++  if (!pattern) {
++    return value;
++  }
++  let regex: RegExp;
++  try {
++    regex = new RegExp("^(?:" + pattern + ")$", "v");
++  } catch {
++    try {
++      regex = new RegExp("^(?:" + pattern + ")$", "u");
++    } catch {
++      return value;
++    }
++  }
++  const variants = new Set<string>([value]);
++  for (const base of [value, ...alternatives]) {
++    if (base === null) {
++      continue;
++    }
++    for (const ascii of [base, toHalfWidthAscii(base), toFullWidth(base)]) {
++      for (const reading of [
++        ascii,
++        toHiragana(ascii),
++        toKatakana(ascii),
++        toHalfWidthKana(toKatakana(ascii)),
++      ]) {
++        variants.add(reading);
++        variants.add(reading.replace(/[-－]/gu, ""));
++      }
++    }
++  }
++  for (const variant of variants) {
++    if (
++      (maxLength <= 0 || [...variant].length <= maxLength) &&
++      regex.exec(variant)?.[0] === variant
++    ) {
++      return variant;
++    }
++  }
++  return value;
++}
 +
 +const fits = (v: string, f: JevFormat) =>
 +  f.maxLength > 0 && [...v].length > f.maxLength ? null : v;
@@ -595,9 +692,7 @@ index 0000000..ef395f1
 +  if (!value) {
 +    return null;
 +  }
-+  if (full) {
-+    value = toFullWidth(value);
-+  }
++  value = width(value, format, full);
 +  // A name without separator evidence may drop the space to fit a short field; other values are
 +  // never shortened: a truncated address is worse than an empty field.
 +  const mayDropSpace =
@@ -618,9 +713,7 @@ index 0000000..ef395f1
 +  let value = kanjiDate
 +    ? `${year}年${pad(b.month, padded)}月${pad(b.day, padded)}日`
 +    : `${year}${sep}${pad(b.month, padded)}${sep}${pad(b.day, padded)}`;
-+  if (full) {
-+    value = toFullWidth(value);
-+  }
++  value = width(value, f, full);
 +  return (
 +    fits(value, f) ??
 +    (f.dateSeparator === null && !kanjiDate
@@ -1244,10 +1337,10 @@ index 0000000..4a26ace
 +}
 diff --git a/apps/browser/src/autofill/jev/jev-model.spec.ts b/apps/browser/src/autofill/jev/jev-model.spec.ts
 new file mode 100644
-index 0000000..d193fc8
+index 0000000..30f8884
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.spec.ts
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,615 @@
 +import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
 +
 +import { JevProfile, parseFormat, render, toJevProfile } from "./jev-format";
@@ -1479,6 +1572,102 @@ index 0000000..d193fc8
 +  });
 +});
 +
++describe("Japanese field constraints", () => {
++  it.each([
++    [{ caption: "郵便番号", after: "（半角数字、ハイフンは不要）" }, "1000001"],
++    [{ caption: "郵便番号", context: "氏名（全角） 郵便番号（半角）" }, "1000001"],
++    [
++      { caption: "郵便番号", context: "氏名（全角） 郵便番号", placeholder: "100-0001" },
++      "100-0001",
++    ],
++    [{ caption: "郵便番号", context: "前の行（全角） 郵便番号（全角）" }, "１０００００１"],
++    [{ name: "last_name_kana", context: "フリガナ（半角カナ）", after: "ひらがな" }, "しけん"],
++    [{ caption: "姓（カナ）", context: "姓（ふりがな）", after: "ひらがな" }, "シケン"],
++    [{ caption: "姓（ふりがな）", after: "半角カナ" }, "しけん"],
++    [{ caption: "姓（カナ）", placeholder: "半角カナ" }, "シケン"],
++  ] as [Partial<JevPageField>, string][])("uses nearby constraints %j", (f, expected) => {
++    expect(values(form(f))).toEqual([expected]);
++  });
++
++  it("keeps mixed bracketed notes following the heading and ignores the previous row", () => {
++    const fields = form({
++      caption: "姓",
++      context: "前の行（全角） 姓（全角かな、半角英数字）",
++    });
++    expect(planRows(fields, { familyName: "ｶﾞﾐｰＡ１" }, {}, undefined, today)[0].value).toBe(
++      "ガミーA1",
++    );
++    expect(
++      values(form({ caption: "姓（カナ）", context: "前の行（半角カナ） 姓（全角）" })),
++    ).toEqual(["シケン"]);
++  });
++
++  it("separates kana width from ASCII width for addresses and names", () => {
++    const renderNote = (kind: JevKind, note: string, p = profile) =>
++      render(kind, parseFormat([note], -1), "TEXT", p, today);
++    expect(renderNote("ADDRESS_FULL", "全角かな、半角英数字")).toBe(
++      "神奈川県横浜市中区検証町1-2-3 ダミービル101",
++    );
++    expect(renderNote("STREET", "全角")).toBe("検証町１－２－３");
++    expect(renderNote("FAMILY_KANA", "半角")).toBe("シケン");
++    expect(renderNote("FAMILY_KANA", "かな")).toBe("しけん");
++    expect(renderNote("FAMILY_KANA", "カタカナ", { familyKana: "しけん" })).toBe("シケン");
++    expect(renderNote("FAMILY_KANA", "ひらがな", { familyKana: "ｶﾞﾐｰ" })).toBe("がみー");
++    expect(renderNote("FAMILY_KANA", "半角カタカナ")).toBe("ｼｹﾝ");
++    expect(renderNote("FAMILY", "全角かな、半角英数字", { familyName: "ｶﾞﾐｰＡ１" })).toBe(
++      "ガミーA1",
++    );
++  });
++
++  it.each([
++    [{ caption: "郵便番号（全角）", pattern: "[0-9]{7}" }, "1000001"],
++    [{ caption: "郵便番号", pattern: "[０-９]{7}" }, "１０００００１"],
++    [{ caption: "郵便番号", pattern: "[0-9]{3}-[0-9]{4}" }, "100-0001"],
++    [{ caption: "郵便番号", placeholder: "100-0001", pattern: "[0-9]{7}" }, "1000001"],
++    [{ caption: "姓（カナ）", pattern: "[ぁ-ゖ]+" }, "しけん"],
++    [{ caption: "姓（ふりがな）", pattern: "[ァ-ヶ]+" }, "シケン"],
++    [{ caption: "姓（カナ）", pattern: "[ｦ-ﾟ]+" }, "ｼｹﾝ"],
++    [{ caption: "姓（カナ）", pattern: "[" }, "シケン"],
++    [{ caption: "姓（カナ）", pattern: "x+" }, "シケン"],
++    [{ caption: "郵便番号（全角）", inputmode: "numeric" }, "1000001"],
++    [{ caption: "電話番号（全角）", inputmode: "tel" }, "09000000000"],
++  ] as [Partial<JevPageField>, string][])("selects local value variants %j", (f, expected) => {
++    expect(values(form(f))).toEqual([expected]);
++  });
++
++  it("uses Unicode sets, falls back to u, and normalizes email inputmode", () => {
++    expect(values(form({ caption: "郵便番号", pattern: "[\\p{ASCII}&&[0-9]]{7}" }))).toEqual([
++      "1000001",
++    ]);
++    expect(values(form({ caption: "郵便番号", pattern: "[0-9-]{7}" }))).toEqual(["1000001"]);
++    const rows = planRows(
++      form({ caption: "メールアドレス", inputmode: "email" }),
++      { email: "ｔｅｓｔ＠example.invalid" },
++      {},
++      undefined,
++      today,
++    );
++    expect(rows[0].value).toBe("test@example.invalid");
++  });
++
++  it("whitelists request properties without local-only constraint metadata", () => {
++    const body = JSON.stringify(
++      jevRequest(
++        form({
++          caption: "姓",
++          after: "local-after-sentinel",
++          pattern: "local-pattern-sentinel",
++          inputmode: "local-inputmode-sentinel",
++        }),
++      ),
++    );
++    for (const key of ["after", "pattern", "inputmode"]) {
++      expect(body).not.toContain(`"${key}":`);
++      expect(body).not.toContain(`local-${key}-sentinel`);
++    }
++  });
++});
++
 +describe("Jev rendering", () => {
 +  const r = (kind: JevKind, texts: string[] = [], max = -1, shape: JevShape = "TEXT") =>
 +    render(kind, parseFormat(texts, max), shape, profile, today);
@@ -1575,7 +1764,10 @@ index 0000000..d193fc8
 +  it("leaves unsupported counts, ambiguous addresses and incompatible splits empty", () => {
 +    expect(kinds({ context: "電話番号" }, { context: "－" })).toEqual(["UNKNOWN", "UNKNOWN"]);
 +    expect(kinds({ context: "住所" }, { context: "－" })).toEqual(["ADDRESS_FULL", "UNKNOWN"]);
-+    expect(kinds({ context: "ご住所" }, { context: "ご住所" })).toEqual(["ADDRESS_FULL", "UNKNOWN"]);
++    expect(kinds({ context: "ご住所" }, { context: "ご住所" })).toEqual([
++      "ADDRESS_FULL",
++      "UNKNOWN",
++    ]);
 +    expect(kinds({ context: "郵便番号", type: "email" }, { context: "－" })).toEqual([
 +      "UNKNOWN",
 +      "UNKNOWN",
@@ -1766,14 +1958,21 @@ index 0000000..d193fc8
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-model.ts b/apps/browser/src/autofill/jev/jev-model.ts
 new file mode 100644
-index 0000000..4af721e
+index 0000000..471a82f
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.ts
-@@ -0,0 +1,472 @@
+@@ -0,0 +1,496 @@
 +// Classification of page fields: on-device rules first, Jev for everything they cannot decide.
 +// Jev receives only the page's own text about each field (labels, placeholders, names), never a
 +// profile value, the page URL or a password field.
-+import { JevDate, JevProfile, optionIndex, parseFormat, render } from "./jev-format";
++import {
++  constrainedValue,
++  JevDate,
++  JevProfile,
++  optionIndex,
++  parseFormat,
++  render,
++} from "./jev-format";
 +import {
 +  bitCount,
 +  ADDR_BUILDING,
@@ -2218,11 +2417,28 @@ index 0000000..4af721e
 +      );
 +      value = index >= 0 ? field.options[index].value : null;
 +    } else if (kind !== "UNKNOWN") {
++      // rowHeading uses NFKC/lowercase; locate its last occurrence in the same text.
++      const context = field.context.normalize("NFKC").toLowerCase();
++      const heading = headings[i];
++      // Bracketed notes may remain in rowHeading.text; retain them as constraints.
++      const headingText = heading.text.split(/[([]/u)[0];
++      const at = heading.kind !== "UNKNOWN" ? context.lastIndexOf(headingText) : -1;
++      const constraints = at >= 0 ? context.slice(at + headingText.length) : "";
 +      const format = parseFormat(
-+        [field.caption, field.ariaLabel, field.placeholder],
++        [field.caption, field.ariaLabel, field.placeholder, field.after ?? "", constraints],
 +        field.maxLength,
 +      );
-+      value = render(kind, format, shapes[i], profile, today);
++      value = constrainedValue(
++        render(kind, format, shapes[i], profile, today),
++        field.pattern,
++        field.inputmode,
++        field.maxLength,
++        field.pattern
++          ? [true, false].map((hyphen) =>
++              render(kind, { ...format, hyphen }, shapes[i], profile, today),
++            )
++          : [],
++      );
 +    }
 +    return {
 +      field,
@@ -2244,10 +2460,10 @@ index 0000000..4af721e
 +export { caption };
 diff --git a/apps/browser/src/autofill/jev/jev-page.spec.ts b/apps/browser/src/autofill/jev/jev-page.spec.ts
 new file mode 100644
-index 0000000..e44089d
+index 0000000..03d00a2
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-page.spec.ts
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,453 @@
 +/** @jest-environment-options {"url":"https://profile.example/form"} */
 +import { JevFeedbackRow, jevPage } from "./jev-page";
 +
@@ -2310,6 +2526,28 @@ index 0000000..e44089d
 +    const injected = new Function(`return (${jevPage.toString()})`)() as typeof jevPage;
 +    const snapshot = await injected({ action: "collect", url: location.href });
 +    expect(snapshot?.fields.map((field) => field.labels[0])).toContain("姓");
++  });
++  it("collects following constraints up to the next control, filters text and clips attributes", async () => {
++    document.body.innerHTML =
++      '<form><label>姓<input id="family" pattern="[0-9]+" inputmode="numeric"></label>' +
++      "<script>excluded-script</script><style>excluded-style</style><span>（半角数字）</span>" +
++      '<input id="next"><span>next-row-note</span><select><option>excluded-option</option></select>' +
++      '<textarea>excluded-textarea</textarea><input id="last">' +
++      "a".repeat(100) +
++      "</form>";
++    const fields = (await collect())!.fields;
++    expect(fields[0].after).toBe("（半角数字）");
++    expect(fields[0].pattern).toBe("[0-9]+");
++    expect(fields[0].inputmode).toBe("numeric");
++    expect(fields[1].after).toBe("next-row-note");
++    expect(fields[3].after).toBe("");
++    expect(fields[4].after).toHaveLength(80);
++    const input = document.querySelector<HTMLInputElement>("#family")!;
++    input.setAttribute("pattern", "a".repeat(250));
++    input.setAttribute("inputmode", "b".repeat(250));
++    const clipped = (await collect())!.fields[0];
++    expect(clipped.pattern).toHaveLength(200);
++    expect(clipped.inputmode).toHaveLength(200);
 +  });
 +  it("rejects fields outside the document, tiny, transparent, clipped or covered", async () => {
 +    const input = document.querySelector<HTMLInputElement>("#family")!;
@@ -2406,6 +2644,12 @@ index 0000000..e44089d
 +    // Every record lands in the same millisecond, as on a fast machine; keys must still differ.
 +    jest.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
 +    try {
++      document.querySelector("#family")!.setAttribute("pattern", "local-pattern-sentinel");
++      document.querySelector("#family")!.setAttribute("inputmode", "local-inputmode-sentinel");
++      document
++        .querySelector("#family")!
++        .closest("label")!
++        .insertAdjacentText("afterend", "local-after-sentinel");
 +      document.body.insertAdjacentHTML("beforeend", '<input id="notes">');
 +      const snapshot = await collect();
 +      const password = document.querySelector<HTMLInputElement>("#password")!;
@@ -2450,6 +2694,12 @@ index 0000000..e44089d
 +        expect(json).not.toContain(value);
 +      }
 +      expect(json).toContain('"caption":"姓"');
++      for (const key of ["after", "pattern", "inputmode"]) {
++        expect(json).not.toContain(`"${key}":`);
++        if (key !== "after") {
++          expect(json).not.toContain(`local-${key}-sentinel`);
++        }
++      }
 +    } finally {
 +      root.chrome = previous;
 +    }
@@ -2669,10 +2919,10 @@ index 0000000..e44089d
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-page.ts b/apps/browser/src/autofill/jev/jev-page.ts
 new file mode 100644
-index 0000000..2afc2d4
+index 0000000..b8d5fca
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-page.ts
-@@ -0,0 +1,422 @@
+@@ -0,0 +1,454 @@
 +export interface JevPageField {
 +  id: number;
 +  type: string;
@@ -2685,6 +2935,10 @@ index 0000000..2afc2d4
 +  htmlId: string;
 +  /** Text right before the field (table cells, <dt>, spans), for pages without <label>. */
 +  context: string;
++  /** Local-only constraints; never included in requests or feedback descriptors. */
++  after?: string;
++  pattern?: string;
++  inputmode?: string;
 +  /** The <legend> of the enclosing <fieldset>. */
 +  group: string;
 +  autocomplete: string;
@@ -2817,6 +3071,31 @@ index 0000000..2afc2d4
 +    }
 +    return parts.join(" ").slice(-80);
 +  };
++  const followingText = (node: Control): string => {
++    const walker = document.createTreeWalker(
++      document.body,
++      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
++    );
++    walker.currentNode = node;
++    const parts: string[] = [];
++    let length = 0;
++    while (length < 80 && walker.nextNode()) {
++      const next = walker.currentNode;
++      if (next instanceof Element && next.matches("input, select, textarea, button")) {
++        break;
++      }
++      if (next.nodeType !== Node.TEXT_NODE) {
++        continue;
++      }
++      const text = (next.textContent ?? "").replace(/\s+/g, " ").trim();
++      if (!text || next.parentElement?.closest("script, style, option, select, textarea")) {
++        continue;
++      }
++      parts.push(text);
++      length += text.length;
++    }
++    return parts.join(" ").slice(0, 80);
++  };
 +  const describe = (node: Control, id: number): JevPageField => ({
 +    id,
 +    type: node instanceof HTMLSelectElement ? "select" : node.type,
@@ -2836,6 +3115,9 @@ index 0000000..2afc2d4
 +    name: (node.getAttribute("name") ?? "").slice(0, 256),
 +    htmlId: node.id.slice(0, 256),
 +    context: precedingText(node),
++    after: followingText(node),
++    pattern: (node.getAttribute("pattern") ?? "").slice(0, 200),
++    inputmode: (node.getAttribute("inputmode") ?? "").slice(0, 200),
 +    group: (node.closest("fieldset")?.querySelector("legend")?.textContent ?? "").slice(0, 256),
 +    autocomplete: node.autocomplete ?? "",
 +    maxLength: node instanceof HTMLSelectElement ? -1 : node.maxLength,
