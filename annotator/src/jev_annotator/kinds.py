@@ -25,6 +25,7 @@ _BUILDING: Final = 1 << 7
 _CITY: Final = _MUNICIPALITY | _WARD
 _BLOCK: Final = _CHOME | _BAN | _GO
 _MOBILE: Final = 1 << 30
+ADDRESS_BITS: Final = 0xFF
 
 
 @dataclass(frozen=True, slots=True)

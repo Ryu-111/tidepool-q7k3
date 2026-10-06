@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Final
 
 from jev_annotator.corpus import SKIPPED_TYPES
 from jev_annotator.feedback import OUTCOMES
-from jev_annotator.kinds import OTHER, UNKNOWN, mask_of
+from jev_annotator.kinds import ADDRESS_BITS, OTHER, UNKNOWN, mask_of
 from jev_annotator.store import Label, field_key
 
 if TYPE_CHECKING:
@@ -57,9 +57,10 @@ class Score:
         """Labelled fields the prediction file covered."""
         return self.correct + self.wrong + self.missed + self.spurious
 
-    def add(self, label: str, predicted: str) -> None:
-        """Count one labelled field."""
-        expected, got = mask_of(label), mask_of(predicted or UNKNOWN)
+    def add(self, label: str, predicted: str, expected: int | None = None) -> None:
+        """Count one labelled field; ``expected`` overrides the mask after sibling refinement."""
+        expected = mask_of(label) if expected is None else expected
+        got = mask_of(predicted or UNKNOWN)
         if expected == got:
             self.correct += 1
             return
@@ -70,6 +71,35 @@ class Score:
             self.missed += 1
         else:
             self.wrong += 1
+
+
+def _refined(label: str, index: int, siblings: Iterable[tuple[int, str]]) -> int:
+    """The label's address mask minus the parts other labelled fields of the form hold.
+
+    Address rows own their components in page order: an earlier row keeps what it shares with a
+    later one (AFTER_MUNICIPALITY after a CITY row is scored as town to building), and a row
+    contained in this one is removed from it, as the extension refines combined fields.
+    """
+    mask = mask_of(label)
+    if not mask & ADDRESS_BITS:
+        return mask
+    for other_index, other in siblings:
+        part = mask_of(other) & ADDRESS_BITS
+        if not part or part == mask_of(label) & ADDRESS_BITS:
+            continue
+        if part & ~mask == 0 or other_index < index:
+            mask &= ~part
+    return mask
+
+
+def _form_labels(labels: Mapping[str, Label]) -> dict[str, list[tuple[int, str]]]:
+    """Labels grouped by ``<page>#<form>``, as (raw index, kind), unsure ones left out."""
+    groups: dict[str, list[tuple[int, str]]] = {}
+    for key, label in labels.items():
+        if not label.unsure:
+            prefix, _, index = key.rpartition("#")
+            groups.setdefault(prefix, []).append((int(index), label.kind))
+    return groups
 
 
 def _index_maps(pages: Mapping[str, Page]) -> dict[tuple[str, int], tuple[list[int], list[int]]]:
@@ -118,6 +148,7 @@ def score(
     jev_format = rows[0][0] == "page"
     entries = _jev_rows(rows[0], rows[1:]) if jev_format else _probe_rows(rows)
     maps = _index_maps(pages)
+    groups = _form_labels(labels)
     scores: dict[str, Score] = {}
     for page, form, position, kinds in entries:
         order = maps.get((page, form))
@@ -127,11 +158,18 @@ def score(
         if position >= len(indexes):
             msg = f"{page}#{form}: index {position} beyond {len(indexes)} fields"
             raise ReportError(msg)
-        label = labels.get(field_key(page, form, indexes[position]))
+        key = field_key(page, form, indexes[position])
+        label = labels.get(key)
         if label is None or label.unsure:
             continue
+        index = indexes[position]
+        siblings = [item for item in groups.get(f"{page}#{form}", []) if item[0] != index]
+        refined = _refined(label.kind, index, siblings)
         for column, predicted in kinds.items():
-            scores.setdefault(column, Score()).add(label.kind, predicted)
+            # An exact match never needs refinement.
+            exact = mask_of(label.kind) == mask_of(predicted or UNKNOWN)
+            expected = mask_of(label.kind) if exact else refined
+            scores.setdefault(column, Score()).add(label.kind, predicted, expected)
     return scores
 
 

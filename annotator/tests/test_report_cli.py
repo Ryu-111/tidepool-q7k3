@@ -98,3 +98,18 @@ def test_default_corpus_falls_back_to_the_main_checkout(tmp_path: Path) -> None:
     assert default_corpus(worktree) == main_root / "probe" / "corpus"
     (worktree / ".git").write_text(f"gitdir: {tmp_path}/elsewhere\n", encoding="utf-8")
     assert default_corpus(worktree) == worktree / "probe" / "corpus"
+
+
+def test_address_labels_are_refined_by_sibling_labels(
+    pages: dict[str, Page], store: LabelStore
+) -> None:
+    # Raw index 4 is a select in the sample; treat 1 and 5 as two address rows for the test.
+    store.put(field_key(PAGE_KEY, 0, 1), "CITY", unsure=False, note="", fingerprint="")
+    store.put(
+        field_key(PAGE_KEY, 0, 5), "AFTER_MUNICIPALITY", unsure=False, note="", fingerprint=""
+    )
+    header = "page\tform\tno\tlocal\tjev\tconf\tfinal\tsource"
+    lines = [header, f"{PAGE_KEY}\t0\t3\tADDRESS_LINES\t\t\tADDRESS_LINES\tlocal"]
+    # jev-eval order skips nothing here except hidden/radio: positions 0,1,2,3 -> raw 1,3,4,5.
+    result = score(pages, store.labels(), lines)["final"]
+    assert (result.correct, result.wrong) == (1, 0)
