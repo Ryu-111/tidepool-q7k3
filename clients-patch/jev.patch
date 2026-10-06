@@ -1337,10 +1337,10 @@ index 0000000..4a26ace
 +}
 diff --git a/apps/browser/src/autofill/jev/jev-model.spec.ts b/apps/browser/src/autofill/jev/jev-model.spec.ts
 new file mode 100644
-index 0000000..30f8884
+index 0000000..14500e5
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.spec.ts
-@@ -0,0 +1,615 @@
+@@ -0,0 +1,847 @@
 +import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
 +
 +import { JevProfile, parseFormat, render, toJevProfile } from "./jev-format";
@@ -1651,6 +1651,7 @@ index 0000000..30f8884
 +  });
 +
 +  it("whitelists request properties without local-only constraint metadata", () => {
++    expect(jevRequest(form({ form: 7 })).state.form.fields[0]).not.toHaveProperty("form");
 +    const body = JSON.stringify(
 +      jevRequest(
 +        form({
@@ -1658,10 +1659,11 @@ index 0000000..30f8884
 +          after: "local-after-sentinel",
 +          pattern: "local-pattern-sentinel",
 +          inputmode: "local-inputmode-sentinel",
++          section: "local-section-sentinel",
 +        }),
 +      ),
 +    );
-+    for (const key of ["after", "pattern", "inputmode"]) {
++    for (const key of ["after", "pattern", "inputmode", "section"]) {
 +      expect(body).not.toContain(`"${key}":`);
 +      expect(body).not.toContain(`local-${key}-sentinel`);
 +    }
@@ -1836,6 +1838,28 @@ index 0000000..30f8884
 +    ]);
 +  });
 +
++  it("keeps unlabelled numbered address rows in the member section", () => {
++    const section = "会員情報入力";
++    const rows = planRows(
++      form(
++        { context: "都道府県 必須", section },
++        ...[
++          "必須 市区町村 必須",
++          "必須 それ以降の住所 必須",
++          "それ以降の住所 必須 マンション名等",
++        ].map((context, i) => ({
++          context,
++          name: `address${i + 1}`,
++          htmlId: `address${i + 1}`,
++          section,
++        })),
++      ),
++      profile,
++    );
++    expect(rows.map((row) => row.kind)).toEqual(["REGION", "CITY", "STREET", "BUILDING"]);
++    expect(rows.every((row) => row.source === "local")).toBe(true);
++  });
++
 +  it("uses semantic family and given tokens even when given comes first", () => {
 +    expect(
 +      values(
@@ -1956,12 +1980,220 @@ index 0000000..30f8884
 +    expect(() => parseJevAnswers({}, request)).toThrow();
 +  });
 +});
++
++describe("Section ownership and neighbor sequence", () => {
++  const kinds = (...fields: Partial<JevPageField>[]) =>
++    planRows(form(...fields), profile).map((row) => row.kind);
++
++  it.each(["緊急連絡先", "保護者", "配偶者", "ご家族", "紹介者", "連帯保証人"])(
++    "blocks personal fields in %s even with explicit hints or model answers",
++    (section) => {
++      for (const key of ["section", "group"]) {
++        const fields = form(
++          ...[
++            "姓",
++            "名",
++            "フリガナ",
++            "住所",
++            "郵便番号",
++            "電話番号",
++            "メール",
++            "生年月日",
++            "性別",
++            "年齢",
++          ].map((caption) => ({ caption, [key]: section })),
++        );
++        expect(fields.map(localKind)).toEqual(fields.map(() => "UNKNOWN"));
++        const answers = Object.fromEntries(
++          fields.map((f) => [f.id, { kind: "FULL_NAME" as const, confidence: 1 }]),
++        );
++        expect(
++          planRows(fields, profile, answers).every((r) => r.kind === "UNKNOWN" && r.value === null),
++        ).toBe(true);
++      }
++    },
++  );
++  it.each(["勤務先", "お勤め先"])(
++    "keeps name and email but not address or phone in %s",
++    (section) => {
++      expect(
++        kinds(
++          { caption: "氏名", section },
++          { caption: "メール", section },
++          { caption: "住所", section },
++          { caption: "電話番号", section },
++        ),
++      ).toEqual(["FULL_NAME", "EMAIL", "UNKNOWN", "UNKNOWN"]);
++    },
++  );
++  // B2B forms ask for the contact person's own data under company headings; deliveries usually
++  // go to the user.
++  it.each(["会社情報", "お届け先", "送付先", "学校"])("keeps the user's data in %s", (section) => {
++    expect(
++      kinds(
++        { caption: "氏名", section },
++        { caption: "住所", section },
++        { caption: "電話番号", section },
++      ),
++    ).toEqual(["FULL_NAME", "ADDRESS_FULL", "PHONE"]);
++  });
++  it.each(["ご本人", "お客様情報", "会員情報", "申込者", "ご契約者"])(
++    "keeps the user's %s",
++    (section) => {
++      expect(kinds({ caption: "姓", section }, { caption: "メール", section })).toEqual([
++        "FAMILY",
++        "EMAIL",
++      ]);
++    },
++  );
++  it("keeps company, department and job title and blocks numbered personal runs", () => {
++    expect(
++      kinds(...["会社名", "部署名", "役職"].map((caption) => ({ caption, section: "会社情報" }))),
++    ).toEqual(["COMPANY", "DEPARTMENT", "JOB_TITLE"]);
++    expect(
++      kinds(...["tel1", "tel2", "tel3"].map((name) => ({ name, maxLength: 4, section: "勤務先" }))),
++    ).toEqual(["UNKNOWN", "UNKNOWN", "UNKNOWN"]);
++  });
++  it.each([
++    ["都道府県", "番地", "CITY"],
++    ["市", "町名", "WARD"],
++    ["町名", "号", "UNKNOWN"],
++    ["番地", "都道府県", "UNKNOWN"],
++  ])("fills only a canonical address gap %s / %s", (left, right, expected) => {
++    expect(kinds({ caption: left }, {}, { caption: right })[1]).toBe(expected);
++  });
++  it("requires prefecture options for postal / select / city", () => {
++    const ends = [{ caption: "郵便番号" }, { caption: "市区町村" }];
++    expect(kinds(ends[0], {}, ends[1])[1]).toBe("REGION");
++    expect(kinds(ends[0], { type: "select" }, ends[1])[1]).toBe("UNKNOWN");
++    expect(
++      kinds(
++        ends[0],
++        {
++          type: "select",
++          options: ["北海道", "東京都", "大阪府"].map((label) => ({ value: label, label })),
++        },
++        ends[1],
++      )[1],
++    ).toBe("REGION");
++  });
++  it.each([
++    ["姓", "GIVEN"],
++    ["セイ", "GIVEN_KANA"],
++  ])("completes a blank name partner after %s", (caption, expected) => {
++    expect(kinds({ caption }, {})).toEqual([localKind(field({ caption })), expected]);
++  });
++  it("never crosses section or legend boundaries, even for refinement", () => {
++    expect(kinds({ caption: "姓", form: 0 }, { form: 1 })).toEqual(["FAMILY", "UNKNOWN"]);
++    for (const key of ["section", "group"]) {
++      expect(kinds({ caption: "姓", [key]: "A" }, { [key]: "B" })).toEqual(["FAMILY", "UNKNOWN"]);
++      expect(
++        kinds(
++          { caption: "都道府県", [key]: "A" },
++          { [key]: "A" },
++          { caption: "番地", [key]: "B" },
++        )[1],
++      ).toBe("UNKNOWN");
++      expect(kinds({ caption: "都道府県", [key]: "A" }, { caption: "住所", [key]: "B" })).toEqual([
++        "REGION",
++        "ADDRESS_FULL",
++      ]);
++      expect(kinds({ caption: "氏名", [key]: "A" }, { caption: "氏名", [key]: "B" })).toEqual([
++        "FULL_NAME",
++        "FULL_NAME",
++      ]);
++    }
++  });
++  it("keeps conflicting evidence, unrelated controls and multiple gaps unresolved", () => {
++    for (const evidence of [
++      { caption: "備考" },
++      { placeholder: "例: 備考" },
++      { name: "email" },
++      { name: "guardian_name" },
++      { caption: "姓", name: "given_name" },
++      { type: "email" },
++      { type: "password" },
++    ]) {
++      const middle = kinds({ caption: "都道府県" }, evidence, { caption: "番地" })[1];
++      expect(middle).not.toBe("CITY");
++    }
++    expect(kinds({ caption: "都道府県" }, {}, {}, { caption: "番地" }).slice(1, 3)).toEqual([
++      "UNKNOWN",
++      "UNKNOWN",
++    ]);
++    expect(kinds({ caption: "メール" }, {}, { caption: "メール" })[1]).toBe("UNKNOWN");
++    expect(kinds({ caption: "姓" }, {}, {})[1]).toBe("UNKNOWN");
++  });
++});
++
++describe("Birth evidence for date components", () => {
++  it.each(["予約日", "イベント開催日"])(
++    "leaves generic year/month/day selects under %s unknown",
++    (section) => {
++      const fields = form(
++        ...["year", "month", "day"].map((name, i) => ({
++          section,
++          name,
++          caption: ["年", "月", "日"][i],
++          type: "select",
++        })),
++      );
++      const answers = Object.fromEntries(
++        fields.map((f, i) => [
++          f.id,
++          { kind: (["BIRTH_YEAR", "BIRTH_MONTH", "BIRTH_DAY"] as JevKind[])[i], confidence: 1 },
++        ]),
++      );
++      expect(planRows(fields, profile, answers).map((r) => r.kind)).toEqual([
++        "UNKNOWN",
++        "UNKNOWN",
++        "UNKNOWN",
++      ]);
++    },
++  );
++  it("accepts explicit birth sections and an inherited birth heading", () => {
++    const fields = form(
++      ...["年", "月", "日"].map((caption) => ({ section: "生年月日", caption, type: "select" })),
++    );
++    const answers = Object.fromEntries(
++      fields.map((f, i) => [
++        f.id,
++        { kind: (["BIRTH_YEAR", "BIRTH_MONTH", "BIRTH_DAY"] as JevKind[])[i], confidence: 1 },
++      ]),
++    );
++    expect(planRows(fields, profile, answers).map((r) => r.kind)).toEqual([
++      "BIRTH_YEAR",
++      "BIRTH_MONTH",
++      "BIRTH_DAY",
++    ]);
++    expect(
++      planRows(form({ context: "生年月日" }, { context: "年" }, { context: "月" }), profile).map(
++        (r) => r.kind,
++      ),
++    ).toEqual(["BIRTH_YEAR", "BIRTH_MONTH", "BIRTH_DAY"]);
++  });
++  it("keeps company kinds under a company legend", () => {
++    expect(
++      planRows(
++        form(...["会社名", "部署名", "役職"].map((caption) => ({ caption, group: "勤務先" }))),
++        profile,
++      ).map((r) => r.kind),
++    ).toEqual(["COMPANY", "DEPARTMENT", "JOB_TITLE"]);
++  });
++});
++
++describe("Numeric constraints on neighbor inference", () => {
++  it("does not infer a name or city into a numeric-only text box", () => {
++    const fields = form({ caption: "姓" }, { pattern: "[0-9]+", inputmode: "numeric" });
++    expect(planRows(fields, profile)[1].kind).toBe("UNKNOWN");
++  });
++});
 diff --git a/apps/browser/src/autofill/jev/jev-model.ts b/apps/browser/src/autofill/jev/jev-model.ts
 new file mode 100644
-index 0000000..471a82f
+index 0000000..b159a95
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.ts
-@@ -0,0 +1,496 @@
+@@ -0,0 +1,630 @@
 +// Classification of page fields: on-device rules first, Jev for everything they cannot decide.
 +// Jev receives only the page's own text about each field (labels, placeholders, names), never a
 +// profile value, the page URL or a password field.
@@ -1976,12 +2208,14 @@ index 0000000..471a82f
 +import {
 +  bitCount,
 +  ADDR_BUILDING,
++  ADDRESS_BITS,
 +  isAddress,
 +  isCompatible,
 +  identifierKind,
 +  JevKind,
 +  JevShape,
 +  labelKind,
++  kindOf,
 +  localChoice,
 +  maskOf,
 +  refine,
@@ -2044,6 +2278,38 @@ index 0000000..471a82f
 +const clip = (s: string | undefined, n = 200) => (s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
 +const questionKey = (id: number) => `field_no_${id}`;
 +const caption = (f: JevPageField) => f.caption || f.ariaLabel || f.context;
++
++const sectionText = (f: JevPageField) => `${f.section ?? ""} ${f.group}`;
++// Sections about another person: none of the user's personal data belongs there. Company and
++// delivery sections are not listed: B2B forms ask for the user's own name and contact under
++// 会社情報, and the delivery address is usually the user's own.
++const otherPerson = (f: JevPageField) =>
++  /緊急連絡先|保護者|配偶者|ご家族|家族の|紹介者|連帯保証人|emergency|guardian|spouse|referrer|guarantor/iu.test(
++    sectionText(f),
++  );
++// The user's workplace: their name and email still apply, its address and phone do not.
++const workplace = (f: JevPageField) =>
++  /勤務先|お勤め先|勤務地|employer|workplace/iu.test(sectionText(f));
++const otherSection = (f: JevPageField) => otherPerson(f) || workplace(f);
++const personalMask =
++  ADDRESS_BITS |
++  maskOf("FULL_NAME") |
++  maskOf("FULL_KANA") |
++  maskOf("POSTAL") |
++  maskOf("PHONE") |
++  maskOf("EMAIL") |
++  maskOf("BIRTHDATE") |
++  maskOf("GENDER") |
++  maskOf("AGE") |
++  maskOf("COUNTRY");
++const workplaceMask = ADDRESS_BITS | maskOf("POSTAL") | maskOf("PHONE");
++const sectionKind = (f: JevPageField, kind: JevKind): JevKind =>
++  (otherPerson(f) && (maskOf(kind) & personalMask) !== 0) ||
++  (workplace(f) && (maskOf(kind) & workplaceMask) !== 0)
++    ? "UNKNOWN"
++    : kind;
++const sameSection = (a: JevPageField, b: JevPageField) =>
++  a.form === b.form && clip(a.section) === clip(b.section) && clip(a.group) === clip(b.group);
 +
 +/** Questions per request; larger forms are asked in several requests with the same state. */
 +export const JEV_QUESTIONS_PER_REQUEST = 24;
@@ -2241,7 +2507,7 @@ index 0000000..471a82f
 +  if (/(?:^|[_\s[.-])search(?:$|[_\s\].-])/iu.test(identifiers)) {
 +    return "UNKNOWN";
 +  }
-+  const hints = [f.caption, f.ariaLabel, f.placeholder, f.group]
++  const hints = [f.caption, f.ariaLabel, f.placeholder, otherSection(f) ? "" : f.group]
 +    .map(labelKind)
 +    .concat([f.name, f.htmlId].map(identifierKind))
 +    .concat(f.autocomplete.split(/\s+/).filter(Boolean).map(labelKind));
@@ -2272,7 +2538,7 @@ index 0000000..471a82f
 +  ) {
 +    return "UNKNOWN";
 +  }
-+  return kind;
++  return sectionKind(f, kind);
 +}
 +
 +/** Numbered identifiers need a complete, adjacent run before their parts are known. */
@@ -2329,6 +2595,7 @@ index 0000000..471a82f
 +    while (
 +      heading.kind !== "UNKNOWN" &&
 +      end < fields.length &&
++      sameSection(fields[start], fields[end]) &&
 +      (headings[end].text === heading.text ||
 +        (chosen[end] === "UNKNOWN" && /^[\s〒ー－\-年月日]+$/u.test(fields[end].context))) &&
 +      (chosen[end] === "UNKNOWN" || chosen[end] === heading.kind)
@@ -2373,6 +2640,9 @@ index 0000000..471a82f
 +  }
 +  for (let i = 0; i + 2 < fields.length; i++) {
 +    const run = fields.slice(i, i + 3);
++    if (!run.every((f) => sameSection(run[0], f) && !otherSection(f))) {
++      continue;
++    }
 +    const numbered = run.map(numberedField);
 +    if (!numbered.every((n, part) => n?.base === numbered[0]?.base && n?.part === part + 1)) {
 +      continue;
@@ -2382,7 +2652,11 @@ index 0000000..471a82f
 +    if (base === "PHONE" && run.every((f) => f.maxLength > 0 && f.maxLength <= 6)) {
 +      parts = ["PHONE_1", "PHONE_2", "PHONE_3"];
 +    } else if (base === "ADDRESS_FULL") {
-+      parts = [chosen[i - 1] === "REGION" ? "CITY" : "REGION_CITY", "STREET", "BUILDING"];
++      parts = [
++        chosen[i - 1] === "REGION" && sameSection(fields[i - 1], run[0]) ? "CITY" : "REGION_CITY",
++        "STREET",
++        "BUILDING",
++      ];
 +    } else {
 +      continue;
 +    }
@@ -2400,9 +2674,101 @@ index 0000000..471a82f
 +      i += 2;
 +    }
 +  }
-+  const kinds = refine(shapes, chosen);
++  // Only one empty box may be completed; use the original decisions, never chained guesses.
++  const inferred = [...chosen];
++  for (let i = 1; i < fields.length; i++) {
++    const f = fields[i];
++    const previous = chosen[i - 1];
++    const next = chosen[i + 1];
++    if (chosen[i] !== "UNKNOWN" || otherSection(f) || !sameSection(fields[i - 1], f)) {
++      continue;
++    }
++    const noEvidence =
++      !f.pattern &&
++      (!f.inputmode || f.inputmode === "text") &&
++      ![f.caption, f.ariaLabel, f.placeholder, f.autocomplete].some((s) => s.trim()) &&
++      ![f.name, f.htmlId].some((s) => identifierKind(s) !== "UNKNOWN") &&
++      !/password|email|mail|search|guardian|spouse|emergency|destination|company|fax|comment|remark|note|message|date|year|month|day/iu.test(
++        `${f.name} ${f.htmlId}`,
++      ) &&
++      (!f.context.trim() || /^[\s〒ー－-]+$/u.test(f.context));
++    let kind: JevKind = "UNKNOWN";
++    if (noEvidence && f.type === "text" && next !== "UNKNOWN") {
++      if (previous === "FAMILY" && (!next || !(maskOf(next) & maskOf("FULL_NAME")))) {
++        kind = "GIVEN";
++      } else if (previous === "FAMILY_KANA" && (!next || !(maskOf(next) & maskOf("FULL_KANA")))) {
++        kind = "GIVEN_KANA";
++      } else if (next && sameSection(f, fields[i + 1]) && isAddress(previous) && isAddress(next)) {
++        const left = maskOf(previous);
++        const right = maskOf(next);
++        const high = 1 << Math.floor(Math.log2(left));
++        const low = right & -right;
++        if (high < low) {
++          kind = kindOf((low - 1) & ~(high * 2 - 1));
++        }
++      }
++    }
++    if (
++      previous === "POSTAL" &&
++      next === "CITY" &&
++      sameSection(f, fields[i + 1]) &&
++      ((noEvidence && f.type === "text") ||
++        (shapes[i] === "LIST" &&
++          noEvidence &&
++          f.options.filter((o) => /北海道|東京都|(?:府|県)$/u.test(o.label)).length >= 3))
++    ) {
++      kind = "REGION";
++    }
++    if (kind !== "UNKNOWN") {
++      inferred[i] = kind;
++      sources[i] = "local";
++    }
++  }
++  // Refinement must not trim or split components against another person's section.
++  const kinds: JevKind[] = [];
++  for (let start = 0; start < fields.length;) {
++    let end = start + 1;
++    while (end < fields.length && sameSection(fields[start], fields[end])) {
++      end++;
++    }
++    kinds.push(
++      ...refine(
++        shapes.slice(start, end),
++        inferred.slice(start, end).map((kind, offset) => sectionKind(fields[start + offset], kind)),
++      ),
++    );
++    start = end;
++  }
 +  return fields.map((field, i) => {
-+    const kind = kinds[i];
++    let kind = kinds[i];
++    if (["BIRTH_YEAR", "BIRTH_ERA_YEAR", "BIRTH_MONTH", "BIRTH_DAY"].includes(kind)) {
++      // Year/month/day separators establish order, not the meaning of a date.
++      const birthEvidence = (f: JevPageField) =>
++        /生年月日|生年|生まれ|誕生|birth|bday|(?:^|[\s_.-])dob(?:$|[\s_.-])/iu.test(
++          [
++            f.caption,
++            f.ariaLabel,
++            f.context,
++            f.section,
++            f.group,
++            f.name,
++            f.htmlId,
++            f.autocomplete,
++          ].join(" "),
++        );
++      let start = i;
++      while (
++        start > 0 &&
++        sameSection(fields[start - 1], field) &&
++        (maskOf(kinds[start - 1]) & maskOf("BIRTHDATE")) !== 0 &&
++        !birthEvidence(fields[start])
++      ) {
++        start--;
++      }
++      if (!birthEvidence(fields[start])) {
++        kind = "UNKNOWN";
++      }
++    }
 +    let value: string | null = null;
 +    if (kind === "PASSWORD") {
 +      value = login?.password || null;
@@ -2460,10 +2826,10 @@ index 0000000..471a82f
 +export { caption };
 diff --git a/apps/browser/src/autofill/jev/jev-page.spec.ts b/apps/browser/src/autofill/jev/jev-page.spec.ts
 new file mode 100644
-index 0000000..03d00a2
+index 0000000..82cba79
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-page.spec.ts
-@@ -0,0 +1,453 @@
+@@ -0,0 +1,490 @@
 +/** @jest-environment-options {"url":"https://profile.example/form"} */
 +import { JevFeedbackRow, jevPage } from "./jev-page";
 +
@@ -2526,6 +2892,43 @@ index 0000000..03d00a2
 +    const injected = new Function(`return (${jevPage.toString()})`)() as typeof jevPage;
 +    const snapshot = await injected({ action: "collect", url: location.href });
 +    expect(snapshot?.fields.map((field) => field.labels[0])).toContain("姓");
++  });
++  it.each([
++    "<h2>勤務先</h2>",
++    '<div role="heading">勤務先</div>',
++    '<div class="panel-title">勤務先</div>',
++    '<div id="MIDASHI">勤務先</div>',
++    "<table><caption>勤務先</caption></table>",
++    '<table><tr><th colspan="2">勤務先</th></tr></table>',
++  ])("collects the nearest heading before the control: %s", async (heading) => {
++    document.body.innerHTML = `<form><h1>ご本人</h1>${heading}<input><h3>later</h3></form>`;
++    expect((await collect())!.fields[0].section).toBe("勤務先");
++  });
++  it("prefers ancestor legends, filters heading text, clips it, and respects forms", async () => {
++    document.body.innerHTML =
++      "<form><h2>勤務先</h2><input></form><form><input><fieldset><legend>ご本人<script>excluded</script></legend><h3>配偶者</h3><input></fieldset><h2>" +
++      "a".repeat(100) +
++      "</h2><input></form>";
++    const fields = (await collect())!.fields;
++    expect(fields.map((f) => f.section)).toEqual(["勤務先", "", "ご本人", "a".repeat(80)]);
++    expect(fields[2].group).toContain("ご本人");
++    expect(fields.map((f) => f.form)).toEqual([0, 1, 1, 1]);
++  });
++  it("ignores ordinary row headers and heading containers enclosing the control", async () => {
++    document.body.innerHTML =
++      '<form><h2>ご本人</h2><div class="title"><table><tr><th>勤務先</th><td><input></td></tr></table></div></form>';
++    expect((await collect())!.fields[0].section).toBe("ご本人");
++  });
++  it.each([
++    '<table><tr><th class="item-title">市区町村</th><td><input></td></tr><tr><th class="item-title">それ以降の住所</th><td><input></td></tr><tr><th class="item-title">マンション名等</th><td><input></td></tr></table>',
++    '<div><div><h4 class="item-title">市区町村</h4><div><input></div></div><div><h4 class="item-title">それ以降の住所</h4><div><input></div></div><div><h4 class="item-title">マンション名等</h4><div><input></div></div></div>',
++    '<dl><dt class="item-title">市区町村</dt><dd><input></dd><dt class="item-title">それ以降の住所</dt><dd><input></dd><dt class="item-title">マンション名等</dt><dd><input></dd></dl>',
++  ])("keeps row titles under the shared section heading: %s", async (rows) => {
++    document.body.innerHTML = `<form><h2>会員情報入力</h2>${rows}</form>`;
++    const fields = (await collect())!.fields;
++    expect(fields).toHaveLength(3);
++    expect(fields.map((field) => field.section)).toEqual(Array(3).fill("会員情報入力"));
++    expect(fields.every((field) => field.caption === "")).toBe(true);
 +  });
 +  it("collects following constraints up to the next control, filters text and clips attributes", async () => {
 +    document.body.innerHTML =
@@ -2919,10 +3322,10 @@ index 0000000..03d00a2
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-page.ts b/apps/browser/src/autofill/jev/jev-page.ts
 new file mode 100644
-index 0000000..b8d5fca
+index 0000000..f543c3a
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-page.ts
-@@ -0,0 +1,454 @@
+@@ -0,0 +1,534 @@
 +export interface JevPageField {
 +  id: number;
 +  type: string;
@@ -2941,6 +3344,10 @@ index 0000000..b8d5fca
 +  inputmode?: string;
 +  /** The <legend> of the enclosing <fieldset>. */
 +  group: string;
++  /** Local-only heading identifying whose data this section collects. */
++  section?: string;
++  /** Local-only form boundary for structural inference. */
++  form?: number;
 +  autocomplete: string;
 +  maxLength: number;
 +  options: { value: string; label: string }[];
@@ -3096,6 +3503,80 @@ index 0000000..b8d5fca
 +    }
 +    return parts.join(" ").slice(0, 80);
 +  };
++  const legendOf = (node: Control) => {
++    for (let p = node.parentElement; p; p = p.parentElement) {
++      if (p.matches("fieldset")) {
++        const legend = p.querySelector(":scope > legend");
++        if (legend) {
++          return legend;
++        }
++      }
++    }
++    return null;
++  };
++  const headingText = (heading: Element) => {
++    const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
++    const parts: string[] = [];
++    while (walker.nextNode()) {
++      if (!walker.currentNode.parentElement?.closest("script, style, option, select, textarea")) {
++        parts.push(walker.currentNode.textContent ?? "");
++      }
++    }
++    return parts.join(" ").replace(/\s+/g, " ").trim().slice(0, 80);
++  };
++  const sectionOf = (node: Control) => {
++    const legend = legendOf(node);
++    if (legend) {
++      return headingText(legend);
++    }
++    const walker = document.createTreeWalker(node.form ?? document.body, NodeFilter.SHOW_ELEMENT);
++    walker.currentNode = node;
++    while (walker.previousNode()) {
++      const element = walker.currentNode as Element;
++      if (
++        element.contains(node) ||
++        element.closest("script, style, option, select, textarea") ||
++        (node.form && element.closest("form") !== node.form)
++      ) {
++        continue;
++      }
++      if (
++        !element.matches("h1,h2,h3,h4,h5,h6,[role=heading],caption") &&
++        !(element.matches("th") && element.parentElement?.children.length === 1) &&
++        !/title|heading|midashi/iu.test(`${element.className} ${element.id}`)
++      ) {
++        continue;
++      }
++      // Row labels can also be headings or have a "title" class. They introduce
++      // controls in one row, not a section, even when scanning a later row.
++      if (
++        element.closest("td, dt, label") ||
++        (element.closest("th") && element.closest("tr")?.querySelector("input,select,textarea"))
++      ) {
++        continue;
++      }
++      let container = element.parentElement;
++      while (container && !container.querySelector("input,select,textarea")) {
++        container = container.parentElement;
++      }
++      if (
++        container &&
++        !container.matches("form,fieldset,body") &&
++        new Set(
++          Array.from(container.querySelectorAll("input,select,textarea")).map(
++            (control) => control.closest("tr,dd,[role=row]") ?? control.parentElement,
++          ),
++        ).size < 2
++      ) {
++        continue;
++      }
++      const text = headingText(element);
++      if (text) {
++        return text;
++      }
++    }
++    return "";
++  };
 +  const describe = (node: Control, id: number): JevPageField => ({
 +    id,
 +    type: node instanceof HTMLSelectElement ? "select" : node.type,
@@ -3118,7 +3599,9 @@ index 0000000..b8d5fca
 +    after: followingText(node),
 +    pattern: (node.getAttribute("pattern") ?? "").slice(0, 200),
 +    inputmode: (node.getAttribute("inputmode") ?? "").slice(0, 200),
-+    group: (node.closest("fieldset")?.querySelector("legend")?.textContent ?? "").slice(0, 256),
++    group: (legendOf(node)?.textContent ?? "").slice(0, 256),
++    section: sectionOf(node),
++    form: node.form ? Array.from(document.forms).indexOf(node.form) : -1,
 +    autocomplete: node.autocomplete ?? "",
 +    maxLength: node instanceof HTMLSelectElement ? -1 : node.maxLength,
 +    options:
