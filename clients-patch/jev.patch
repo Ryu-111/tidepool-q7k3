@@ -742,10 +742,10 @@ index 0000000..ef395f1
 +}
 diff --git a/apps/browser/src/autofill/jev/jev-kinds.ts b/apps/browser/src/autofill/jev/jev-kinds.ts
 new file mode 100644
-index 0000000..ea68822
+index 0000000..4a26ace
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-kinds.ts
-@@ -0,0 +1,473 @@
+@@ -0,0 +1,496 @@
 +// Field kinds and on-device classification rules, ported from the Android JevFieldPolicy.
 +// A kind is the set of profile components it renders, so a combined field ("住所") and its parts
 +// ("都道府県", "番地") compare structurally, never by value.
@@ -1107,6 +1107,29 @@ index 0000000..ea68822
 +  return "UNKNOWN";
 +}
 +
++/** The closest heading, not a keyword search through earlier rows. */
++export function rowHeading(raw: string): { text: string; kind: JevKind; separator: boolean } {
++  const text = normalize(raw);
++  const separator = /(?:^|\s)[ー\-年月日]+\s*$/u.test(text);
++  const tokens = text
++    .replace(bracket, (whole, note: string) =>
++      note.startsWith("例") || notes.has(note) || lengthNote.test(note) ? " " : whole,
++    )
++    .split(/\s+/u)
++    .filter(
++      (token) =>
++        token &&
++        !/^(?:[※*:〒ー\-年月日]+|いずれか必須)$/u.test(token) &&
++        !token.startsWith("※") &&
++        !token.startsWith("例") &&
++        !notes.has(token) &&
++        !lengthNote.test(token) &&
++        !/^(?:半角|全角)/u.test(token),
++    );
++  const heading = tokens.at(-1) ?? "";
++  return { text: heading, kind: labelKind(heading), separator };
++}
++
 +/** Parse identifier tokens, never arbitrary substrings of prose or a site-specific prefix. */
 +export function identifierKind(raw: string): JevKind {
 +  if (!raw || raw.length > 128) {
@@ -1221,10 +1244,10 @@ index 0000000..ea68822
 +}
 diff --git a/apps/browser/src/autofill/jev/jev-model.spec.ts b/apps/browser/src/autofill/jev/jev-model.spec.ts
 new file mode 100644
-index 0000000..ce46b68
+index 0000000..d193fc8
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.spec.ts
-@@ -0,0 +1,434 @@
+@@ -0,0 +1,516 @@
 +import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
 +
 +import { JevProfile, parseFormat, render, toJevProfile } from "./jev-format";
@@ -1406,6 +1429,25 @@ index 0000000..ce46b68
 +    );
 +  });
 +
++  it.each([
++    ["都道府県 ※ ：", "REGION"],
++    ["名 郵便番号 〒", "POSTAL"],
++    ["メールアドレス ＊ （半角英数字） 例：test@example.invalid", "EMAIL"],
++    ["姓 名 必須", "GIVEN"],
++    ["電話番号 いずれか必須 －", "UNKNOWN"],
++    ["生年月日 年 月", "UNKNOWN"],
++    ["電話番号 不明な説明", "UNKNOWN"],
++    ["会社名 フリガナ", "UNKNOWN"],
++  ] as [string, JevKind][])("uses only the closest safe row heading %s", (context, kind) => {
++    expect(localKind(field({ context }))).toBe(kind);
++  });
++
++  it("does not override explicit hints or incompatible shapes with a heading", () => {
++    expect(localKind(field({ caption: "姓", context: "名" }))).toBe("FAMILY");
++    expect(localKind(field({ context: "氏名", type: "tel" }))).toBe("UNKNOWN");
++    expect(localKind(field({ caption: "姓", name: "first_name", context: "名" }))).toBe("UNKNOWN");
++  });
++
 +  it("keeps whole phone and name fields independent of split fields elsewhere", () => {
 +    expect(refine(["TEXT", "TEXT", "TEXT"], ["PHONE", "UNKNOWN", "PHONE_1"])).toEqual([
 +      "PHONE",
@@ -1421,13 +1463,19 @@ index 0000000..ce46b68
 +
 +  it("refines address ranges only against siblings in the same section", () => {
 +    const kinds: JevKind[] = ["REGION", "ADDRESS_FULL", "BUILDING", "EMAIL", "ADDRESS_FULL"];
-+    expect(refine(kinds.map(() => "TEXT"), kinds)).toEqual([
-+      "REGION", "CITY_STREET", "BUILDING", "EMAIL", "ADDRESS_FULL",
-+    ]);
++    expect(
++      refine(
++        kinds.map(() => "TEXT"),
++        kinds,
++      ),
++    ).toEqual(["REGION", "CITY_STREET", "BUILDING", "EMAIL", "ADDRESS_FULL"]);
 +    const ranges: JevKind[] = ["REGION_CITY", "ADDRESS_NO_BUILDING", "BUILDING"];
-+    expect(refine(ranges.map(() => "TEXT"), ranges)).toEqual([
-+      "REGION_CITY", "STREET", "BUILDING",
-+    ]);
++    expect(
++      refine(
++        ranges.map(() => "TEXT"),
++        ranges,
++      ),
++    ).toEqual(["REGION_CITY", "STREET", "BUILDING"]);
 +  });
 +});
 +
@@ -1486,6 +1534,59 @@ index 0000000..ce46b68
 +  const kinds = (...fields: Partial<JevPageField>[]) =>
 +    planRows(form(...fields), profile).map((row) => row.kind);
 +
++  it.each([
++    [
++      ["郵便番号 ※ ：", "－"],
++      ["POSTAL_1", "POSTAL_2"],
++    ],
++    [
++      ["電話番号 いずれか必須 －", "－", "ー"],
++      ["PHONE_1", "PHONE_2", "PHONE_3"],
++    ],
++    [
++      ["氏名", "氏名"],
++      ["FAMILY", "GIVEN"],
++    ],
++    [
++      ["フリガナ", "フリガナ"],
++      ["FAMILY_KANA", "GIVEN_KANA"],
++    ],
++    [
++      ["生年月日", "年", "月"],
++      ["BIRTH_YEAR", "BIRTH_MONTH", "BIRTH_DAY"],
++    ],
++    [
++      ["市区町村", "市区町村"],
++      ["MUNICIPALITY", "WARD"],
++    ],
++  ] as [string[], JevKind[]][])("splits supported heading runs %s", (contexts, expected) => {
++    const rows = planRows(form(...contexts.map((context) => ({ context }))), profile);
++    expect(rows.map((row) => row.kind)).toEqual(expected);
++    expect(rows.every((row) => row.source === "local")).toBe(true);
++  });
++
++  it("splits repeated headings carried through separator context", () => {
++    expect(kinds({ context: "郵便番号" }, { context: "郵便番号 －" })).toEqual([
++      "POSTAL_1",
++      "POSTAL_2",
++    ]);
++  });
++
++  it("leaves unsupported counts, ambiguous addresses and incompatible splits empty", () => {
++    expect(kinds({ context: "電話番号" }, { context: "－" })).toEqual(["UNKNOWN", "UNKNOWN"]);
++    expect(kinds({ context: "住所" }, { context: "－" })).toEqual(["ADDRESS_FULL", "UNKNOWN"]);
++    expect(kinds({ context: "ご住所" }, { context: "ご住所" })).toEqual(["ADDRESS_FULL", "UNKNOWN"]);
++    expect(kinds({ context: "郵便番号", type: "email" }, { context: "－" })).toEqual([
++      "UNKNOWN",
++      "UNKNOWN",
++    ]);
++    expect(kinds({ context: "電話番号" }, { context: "メール" }, { context: "－" })).toEqual([
++      "PHONE",
++      "EMAIL",
++      "UNKNOWN",
++    ]);
++  });
++
 +  it("resolves only complete small numbered phone runs, including bracket indexes", () => {
 +    for (const names of [
 +      ["tel01", "tel02", "tel03"],
@@ -1518,7 +1619,11 @@ index 0000000..ce46b68
 +    const address = [1, 2, 3].map((n) => ({ name: `address${n}` }));
 +    expect(kinds(...address)).toEqual(["REGION_CITY", "STREET", "BUILDING"]);
 +    expect(kinds({ caption: "都道府県" }, { caption: "メール" }, ...address)).toEqual([
-+      "REGION", "EMAIL", "REGION_CITY", "STREET", "BUILDING",
++      "REGION",
++      "EMAIL",
++      "REGION_CITY",
++      "STREET",
++      "BUILDING",
 +    ]);
 +    expect(kinds({ caption: "都道府県" }, ...address)).toEqual([
 +      "REGION",
@@ -1592,7 +1697,7 @@ index 0000000..ce46b68
 +    );
 +    expect(rows.map((r) => [r.kind, r.source, r.value])).toEqual([
 +      ["FAMILY", "local", "試験"],
-+      ["AGE", "jev", "36"],
++      ["AGE", "local", "36"],
 +      ["UNKNOWN", "none", null],
 +    ]);
 +  });
@@ -1661,10 +1766,10 @@ index 0000000..ce46b68
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-model.ts b/apps/browser/src/autofill/jev/jev-model.ts
 new file mode 100644
-index 0000000..9668978
+index 0000000..4af721e
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.ts
-@@ -0,0 +1,407 @@
+@@ -0,0 +1,472 @@
 +// Classification of page fields: on-device rules first, Jev for everything they cannot decide.
 +// Jev receives only the page's own text about each field (labels, placeholders, names), never a
 +// profile value, the page URL or a password field.
@@ -1681,6 +1786,7 @@ index 0000000..9668978
 +  localChoice,
 +  maskOf,
 +  refine,
++  rowHeading,
 +  shapeOf,
 +} from "./jev-kinds";
 +import type { JevPageField } from "./jev-page";
@@ -1940,7 +2046,25 @@ index 0000000..9668978
 +    .map(labelKind)
 +    .concat([f.name, f.htmlId].map(identifierKind))
 +    .concat(f.autocomplete.split(/\s+/).filter(Boolean).map(labelKind));
-+  const kind = localChoice(shape, hints);
++  const heading = rowHeading(f.context);
++  const existing = localChoice(shape, hints);
++  // Conflicting hints, numbered address lines and ambiguous street ranges need more evidence.
++  const ambiguous =
++    hints.some((hint) => hint !== "UNKNOWN") ||
++    (numberedField(f) !== null && isAddress(heading.kind)) ||
++    heading.kind === "STREET" ||
++    heading.kind === "CITY_STREET" ||
++    (heading.kind === "AGE" && shape === "LIST") ||
++    (heading.kind === "BIRTHDATE" && shape === "LIST") ||
++    (heading.kind === "FULL_KANA" && /会社|学校|部署|学部|学科/u.test(f.context)) ||
++    (heading.kind === "ADDRESS_FULL" && /〒/u.test(f.context)) ||
++    (heading.kind === "PHONE" && numberedField(f) !== null && f.maxLength > 6);
++  const kind =
++    existing !== "UNKNOWN"
++      ? existing
++      : heading.separator || ambiguous
++        ? "UNKNOWN"
++        : localChoice(shape, [heading.kind]);
 +  if (
 +    (kind === "EMAIL" && /(?:^|[_\s[.-])login(?:$|[_\s\].-])/iu.test(identifiers)) ||
 +    (isAddress(kind) &&
@@ -1998,6 +2122,56 @@ index 0000000..9668978
 +    sources.push("none");
 +    return "UNKNOWN" as JevKind;
 +  });
++  // A heading may be repeated in preceding text, or followed only by split separators.
++  const headings = fields.map((f) => rowHeading(f.context));
++  for (let start = 0; start < fields.length;) {
++    const heading = headings[start];
++    let end = start + 1;
++    while (
++      heading.kind !== "UNKNOWN" &&
++      end < fields.length &&
++      (headings[end].text === heading.text ||
++        (chosen[end] === "UNKNOWN" && /^[\s〒ー－\-年月日]+$/u.test(fields[end].context))) &&
++      (chosen[end] === "UNKNOWN" || chosen[end] === heading.kind)
++    ) {
++      end++;
++    }
++    const count = end - start;
++    // Reuse the component split tables; whole addresses have no unique count-only split.
++    if (
++      count > 1 &&
++      heading.kind !== "ADDRESS_FULL" &&
++      !fields.slice(start, end).some((f) => /\{\{/u.test(f.context)) &&
++      (heading.kind !== "BIRTHDATE" || !shapes.slice(start, end).includes("LIST")) &&
++      (heading.kind !== "PHONE" ||
++        fields
++          .slice(start, end)
++          .every((f, i) => f.maxLength < 0 || f.maxLength <= (i === 0 ? 6 : 4))) &&
++      (count === bitCount(maskOf(heading.kind)) || (heading.kind === "BIRTHDATE" && count === 3)) &&
++      (chosen[start] === "UNKNOWN" || chosen[start] === heading.kind)
++    ) {
++      const parts = refine(shapes.slice(start, end), Array<JevKind>(count).fill(heading.kind));
++      if (parts.every((part) => part !== "UNKNOWN")) {
++        parts.forEach((part, offset) => {
++          chosen[start + offset] = part;
++          sources[start + offset] = "local";
++        });
++      }
++    } else if (count > 1 && bitCount(maskOf(heading.kind)) > 1) {
++      // A partial heading-derived value cannot fill one box of an unsupported split.
++      for (let i = heading.kind === "ADDRESS_FULL" ? start + 1 : start; i < end; i++) {
++        if (
++          localKind({ ...fields[i], context: "" }) === "UNKNOWN" &&
++          chosen[i] === heading.kind &&
++          sources[i] === "local"
++        ) {
++          chosen[i] = "UNKNOWN";
++          sources[i] = "none";
++        }
++      }
++    }
++    start = end;
++  }
 +  for (let i = 0; i + 2 < fields.length; i++) {
 +    const run = fields.slice(i, i + 3);
 +    const numbered = run.map(numberedField);
@@ -2009,11 +2183,7 @@ index 0000000..9668978
 +    if (base === "PHONE" && run.every((f) => f.maxLength > 0 && f.maxLength <= 6)) {
 +      parts = ["PHONE_1", "PHONE_2", "PHONE_3"];
 +    } else if (base === "ADDRESS_FULL") {
-+      parts = [
-+        chosen[i - 1] === "REGION" ? "CITY" : "REGION_CITY",
-+        "STREET",
-+        "BUILDING",
-+      ];
++      parts = [chosen[i - 1] === "REGION" ? "CITY" : "REGION_CITY", "STREET", "BUILDING"];
 +    } else {
 +      continue;
 +    }
