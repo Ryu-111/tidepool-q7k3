@@ -113,3 +113,13 @@ def test_address_labels_are_refined_by_sibling_labels(
     # jev-eval order skips nothing here except hidden/radio: positions 0,1,2,3 -> raw 1,3,4,5.
     result = score(pages, store.labels(), lines)["final"]
     assert (result.correct, result.wrong) == (1, 0)
+
+
+def test_city_before_a_block_row_includes_the_town(
+    pages: dict[str, Page], store: LabelStore
+) -> None:
+    store.put(field_key(PAGE_KEY, 0, 1), "CITY", unsure=False, note="", fingerprint="")
+    store.put(field_key(PAGE_KEY, 0, 5), "BLOCK", unsure=False, note="", fingerprint="")
+    header = "page\tform\tno\tlocal\tjev\tconf\tfinal\tsource"
+    lines = [header, f"{PAGE_KEY}\t0\t0\tCITY_TOWN\t\t\tCITY_TOWN\tlocal"]
+    assert score(pages, store.labels(), lines)["final"].correct == 1

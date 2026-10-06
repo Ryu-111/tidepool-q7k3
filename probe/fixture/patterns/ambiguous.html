@@ -14,5 +14,5 @@
 <script>
 // The conflicting field passes if it receives the street (a sensible kind) or stays empty
 // (UNKNOWN / low confidence). Receiving the building again would be a wrong answer.
-window.EXPECTED = {pref: '神奈川県', city: '横浜市中区', address2: ['検証町1-2-3', ''], building: 'ダミービル101'};
+window.EXPECTED = {pref: '神奈川県', city: '横浜市中区検証町', address2: ['1-2-3', ''], building: 'ダミービル101'};
 </script><script src="check.js"></script></html>

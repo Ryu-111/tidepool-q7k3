@@ -89,6 +89,15 @@ def _refined(label: str, index: int, siblings: Iterable[tuple[int, str]]) -> int
             continue
         if part & ~mask == 0 or other_index < index:
             mask &= ~part
+    # The town goes with 市区町村 when a later row holds only the block numbers (agreed convention).
+    town, block = mask_of("TOWN"), mask_of("BLOCK")
+    holders = [(i, mask_of(k) & ADDRESS_BITS) for i, k in siblings]
+    if (
+        label in {"CITY", "MUNICIPALITY"}
+        and any(i > index and part == block for i, part in holders)
+        and not any(part & town for _, part in holders)
+    ):
+        mask |= town
     return mask
 
 
