@@ -43,3 +43,4 @@ Standard name, address, phone and email use the Bitwarden Identity. Extra data u
 
 - 2026-10-04 Claude: repository published; docs translated to English and condensed.
 - 2026-10-04 Claude + Codex: added `annotator/` (corpus labelling and scoring; 464 fields labelled so far), Chrome correction-feedback recording (`chrome.storage.local`, no values), `clients-patch/` with the `chrome` CI/CD workflow, and git flow branches. Codex implemented the feedback import and the review fixes; Claude integrated and verified. Unverified: feedback recording in a real Chrome.
+- 2026-10-06 Claude + Codex: Chrome rules now use row headings, sections (other people / workplace), neighbors, width/kana notes and `pattern`; new kinds MOBILE/MOBILE_1..3 and custom field `jev.mobile_phone`. Android still lacks the `jev.mobile_phone` key in `JevCustomFieldKeys.kt` and the MOBILE kinds. `probe/corpus/eval/jev-eval-dom.ts` evaluates on rendered snapshots.
