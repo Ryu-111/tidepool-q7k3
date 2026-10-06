@@ -24,6 +24,7 @@ _GO: Final = 1 << 6
 _BUILDING: Final = 1 << 7
 _CITY: Final = _MUNICIPALITY | _WARD
 _BLOCK: Final = _CHOME | _BAN | _GO
+_MOBILE: Final = 1 << 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,10 +80,14 @@ KINDS: Final[tuple[Kind, ...]] = (
     ),
     Kind("ADDRESS_NO_BUILDING", _REGION | _CITY | _TOWN | _BLOCK, "住所", "住所（建物を除く）"),
     Kind("ADDRESS_FULL", _REGION | _CITY | _TOWN | _BLOCK | _BUILDING, "住所", "住所すべて"),
-    Kind("PHONE", (1 << 14) | (1 << 15) | (1 << 16), "電話", "電話番号（1欄）"),
+    Kind("PHONE", (1 << 14) | (1 << 15) | (1 << 16), "電話", "電話番号（固定・区別なし、1欄）"),
     Kind("PHONE_1", 1 << 14, "電話", "電話 1つ目（市外局番）"),
     Kind("PHONE_2", 1 << 15, "電話", "電話 2つ目"),
     Kind("PHONE_3", 1 << 16, "電話", "電話 3つ目"),
+    Kind("MOBILE", (1 << 14) | (1 << 15) | (1 << 16) | _MOBILE, "電話", "携帯電話（1欄）"),
+    Kind("MOBILE_1", (1 << 14) | _MOBILE, "電話", "携帯 1つ目"),
+    Kind("MOBILE_2", (1 << 15) | _MOBILE, "電話", "携帯 2つ目"),
+    Kind("MOBILE_3", (1 << 16) | _MOBILE, "電話", "携帯 3つ目"),
     Kind("BIRTHDATE", (1 << 23) | (1 << 24) | (1 << 25) | (1 << 26), "生年月日", "生年月日（1欄）"),
     Kind("BIRTH_YEAR", 1 << 24, "生年月日", "生年（西暦または元号付き）"),
     Kind("BIRTH_MONTH", 1 << 25, "生年月日", "生月"),

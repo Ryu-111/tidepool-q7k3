@@ -120,10 +120,10 @@ index 0000000..19627ee
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-format.ts b/apps/browser/src/autofill/jev/jev-format.ts
 new file mode 100644
-index 0000000..7bf9093
+index 0000000..2f24290
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-format.ts
-@@ -0,0 +1,709 @@
+@@ -0,0 +1,731 @@
 +// Value rendering for the Jev bulk fill, ported from the Android JevFormat / JevFormatter /
 +// JevProfileMapper. Page text read here never leaves the extension.
 +import type { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
@@ -171,6 +171,7 @@ index 0000000..7bf9093
 +  /** Only when the stored phone has hyphens. */
 +  phoneParts?: string[];
 +  phone?: string;
++  mobilePhone?: string;
 +  email?: string;
 +  birthDate?: JevDate;
 +  gender?: JevGender;
@@ -235,6 +236,7 @@ index 0000000..7bf9093
 +    building: [clean(p.address2), clean(p.address3)].filter(Boolean).join(" ") || undefined,
 +    phoneParts: parts ? parts.slice(1) : undefined,
 +    phone,
++    mobilePhone: c("mobile_phone"),
 +    email: clean(p.email),
 +    birthDate,
 +    gender,
@@ -249,6 +251,7 @@ index 0000000..7bf9093
 +/** How a field wants its value written; null properties mean "no evidence". */
 +export interface JevFormat {
 +  hyphen: boolean | null;
++  landline?: boolean;
 +  /** Width of ASCII letters, digits and punctuation. */
 +  fullWidth: boolean | null;
 +  /** Kana width is independent of ASCII width; generic 半角 does not narrow kana. */
@@ -318,6 +321,7 @@ index 0000000..7bf9093
 +    f = {
 +      ...f,
 +      hyphen: noHyphen.test(folded) ? false : withHyphen.test(folded) ? true : f.hyphen,
++      landline: f.landline || /自宅|固定|home|landline/iu.test(folded),
 +      era: f.era || eraWords.test(folded),
 +      blockKanji: f.blockKanji || (folded.includes("丁目") && folded.includes("番")),
 +    };
@@ -599,6 +603,24 @@ index 0000000..7bf9093
 +  const full = !numeric && format.fullWidth === true;
 +  const birth = p.birthDate;
 +  const digits = (parts: string[]) => parts.join(!numeric && format.hyphen === true ? "-" : "");
++  const mobileNumber = (phone: string | undefined) =>
++    /^(?:060|070|080|090)/u.test(phone?.replace(/\D/g, "") ?? "");
++  const mobile = kind.startsWith("MOBILE");
++  const phone = mobile
++    ? p.mobilePhone || (mobileNumber(p.phone) ? p.phone : undefined)
++    : format.landline
++      ? mobileNumber(p.phone)
++        ? undefined
++        : p.phone
++      : p.phone || p.mobilePhone;
++  const phoneDigits = phone?.replace(/\D/g, "");
++  const storedParts = phone?.match(/^([0-9]{2,5})-([0-9]{1,4})-([0-9]{3,4})$/u)?.slice(1);
++  const phoneParts =
++    storedParts ||
++    (phone && phone === p.phone ? p.phoneParts : undefined) ||
++    (mobileNumber(phone) && phoneDigits?.length === 11
++      ? [phoneDigits.slice(0, 3), phoneDigits.slice(3, 7), phoneDigits.slice(7)]
++      : undefined);
 +  let value: string | null | undefined;
 +  switch (kind) {
 +    case "FAMILY":
@@ -633,16 +655,16 @@ index 0000000..7bf9093
 +      value = postalParts(p)?.[1];
 +      break;
 +    case "PHONE":
-+      value = p.phoneParts
-+        ? digits(p.phoneParts)
-+        : format.hyphen !== true
-+          ? p.phone?.replace(/\D/g, "")
-+          : null;
++    case "MOBILE":
++      value = phoneParts ? digits(phoneParts) : format.hyphen !== true ? phoneDigits : null;
 +      break;
 +    case "PHONE_1":
 +    case "PHONE_2":
 +    case "PHONE_3":
-+      value = p.phoneParts?.[Number(kind.slice(-1)) - 1];
++    case "MOBILE_1":
++    case "MOBILE_2":
++    case "MOBILE_3":
++      value = phoneParts?.[Number(kind.slice(-1)) - 1];
 +      break;
 +    case "BIRTHDATE":
 +      return birth ? birthdate(birth, format, shape, full) : null;
@@ -835,10 +857,10 @@ index 0000000..7bf9093
 +}
 diff --git a/apps/browser/src/autofill/jev/jev-kinds.ts b/apps/browser/src/autofill/jev/jev-kinds.ts
 new file mode 100644
-index 0000000..4a26ace
+index 0000000..4e24f9a
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-kinds.ts
-@@ -0,0 +1,496 @@
+@@ -0,0 +1,526 @@
 +// Field kinds and on-device classification rules, ported from the Android JevFieldPolicy.
 +// A kind is the set of profile components it renders, so a combined field ("住所") and its parts
 +// ("都道府県", "番地") compare structurally, never by value.
@@ -895,6 +917,10 @@ index 0000000..4a26ace
 +  PHONE_1: 1 << 14,
 +  PHONE_2: 1 << 15,
 +  PHONE_3: 1 << 16,
++  MOBILE: (1 << 14) | (1 << 15) | (1 << 16) | (1 << 30),
++  MOBILE_1: (1 << 14) | (1 << 30),
++  MOBILE_2: (1 << 15) | (1 << 30),
++  MOBILE_3: (1 << 16) | (1 << 30),
 +  BIRTHDATE: (1 << 23) | (1 << 24) | (1 << 25) | (1 << 26),
 +  BIRTH_YEAR: 1 << 24,
 +  BIRTH_MONTH: 1 << 25,
@@ -984,7 +1010,7 @@ index 0000000..4a26ace
 +    return false;
 +  }
 +  const digits =
-+    isWithin(kind, "PHONE") ||
++    isWithin(kind, "MOBILE") ||
 +    isWithin(kind, "POSTAL") ||
 +    (isWithin(kind, "BIRTHDATE") && kind !== "BIRTH_ERA") ||
 +    kind === "AGE";
@@ -1012,7 +1038,10 @@ index 0000000..4a26ace
 +  if (shape === "PASSWORD") {
 +    return "PASSWORD";
 +  }
-+  const usable = hints.filter((h) => h !== "UNKNOWN" && h !== "PASSWORD" && isCompatible(shape, h));
++  const mobile = hints.some((h) => (maskOf(h) & (1 << 30)) !== 0);
++  const usable = hints
++    .filter((h) => h !== "UNKNOWN" && h !== "PASSWORD" && isCompatible(shape, h))
++    .map((h) => (mobile && isWithin(h, "PHONE") ? kindOf(maskOf(h) | (1 << 30)) : h));
 +  let best: JevKind | null = null;
 +  for (const hint of usable) {
 +    if (best === null || isWithin(hint, best)) {
@@ -1082,8 +1111,12 @@ index 0000000..4a26ace
 +add("ADDRESS_LINES", "street-address");
 +add("ADDRESS_FULL", "住所", "address", "addr", "所在地");
 +add("PHONE", "tel", "tel-national", "phone", "phone number", "telephone", "電話", "電話番号");
-+add("PHONE", "携帯電話番号", "連絡先電話番号");
-+add("PHONE", "携帯番号", "telephone_number", "phone_number", "phone_mobile", "telno");
++add("PHONE", "連絡先電話番号", "telephone_number", "phone_number", "telno");
++add("PHONE", "自宅電話", "固定電話", "ご自宅", "自宅", "自宅TEL", "自宅電話番号", "固定電話番号");
++add("PHONE", "home tel", "home phone", "home_tel", "home_phone", "landline");
++add("MOBILE", "携帯", "携帯電話", "携帯電話番号", "携帯番号", "ケータイ", "モバイル");
++add("MOBILE", "mobile", "cell", "cellphone", "cell phone", "keitai", "mobile_tel", "tel_mobile");
++add("MOBILE", "phone_mobile", "mobile_phone", "mobile phone", "mobile number", "mobile telephone");
 +add("PHONE_1", "tel1", "tel01", "tel_1", "phone1", "tel-area-code", "電話番号1");
 +add("PHONE_2", "tel2", "tel02", "tel_2", "phone2", "tel-local-prefix", "電話番号2");
 +add("PHONE_3", "tel3", "tel03", "tel_3", "phone3", "tel-local-suffix", "電話番号3");
@@ -1238,8 +1271,18 @@ index 0000000..4a26ace
 +  if (tokens.some((t) => /^(?:fax|spouse|guardian|parent|emergency|destination)$/u.test(t))) {
 +    return "UNKNOWN";
 +  }
++  if (
++    tokens.some((t) => /^(?:work|workplace|employer|company)$/u.test(t)) &&
++    tokens.some((t) => /^(?:tel|phone|mobile|cell|cellphone|telephone)[0-3]?$/u.test(t))
++  ) {
++    return "UNKNOWN";
++  }
 +  // A numeric suffix can be a box number or a separate field. Resolve it from siblings.
-+  if (/(?:^|_)(?:name|addr|address|tel|phone)(?:_?0?[1-3])(?:input)?$/u.test(text)) {
++  if (
++    /(?:^|_)(?:name|addr|address|tel|phone|mobile|cell|cellphone|keitai|携帯|携帯電話|携帯番号)(?:_?0?[1-3])(?:input)?$/u.test(
++      text,
++    )
++  ) {
 +    return "UNKNOWN";
 +  }
 +  const reading = tokens.some((t) => /^(?:kana|furigana|phonetic)$/u.test(t));
@@ -1291,11 +1334,20 @@ index 0000000..4a26ace
 +      end++;
 +    }
 +    const run = end - start;
-+    if (kinds[start] === "BIRTHDATE" && run === 3) {
++    if (kinds[start] === "MOBILE" && run === 3) {
++      (["MOBILE_1", "MOBILE_2", "MOBILE_3"] as JevKind[]).forEach(
++        (kind, i) => (kinds[start + i] = kind),
++      );
++    } else if (kinds[start] === "BIRTHDATE" && run === 3) {
 +      (["BIRTH_YEAR", "BIRTH_MONTH", "BIRTH_DAY"] as JevKind[]).forEach(
 +        (kind, i) => (kinds[start + i] = kind),
 +      );
-+    } else if (kinds[start] !== "UNKNOWN" && run > 1 && run === bitCount(maskOf(kinds[start]))) {
++    } else if (
++      kinds[start] !== "UNKNOWN" &&
++      (maskOf(kinds[start]) & (1 << 30)) === 0 &&
++      run > 1 &&
++      run === bitCount(maskOf(kinds[start]))
++    ) {
 +      let remaining = maskOf(kinds[start]);
 +      for (let i = start; i < end; i++) {
 +        const lowest = remaining & -remaining;
@@ -1337,7 +1389,7 @@ index 0000000..4a26ace
 +}
 diff --git a/apps/browser/src/autofill/jev/jev-model.spec.ts b/apps/browser/src/autofill/jev/jev-model.spec.ts
 new file mode 100644
-index 0000000..14500e5
+index 0000000..17b8dab
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.spec.ts
 @@ -0,0 +1,847 @@
@@ -1446,7 +1498,7 @@ index 0000000..14500e5
 +    ["Eメールアドレスを入力", "EMAIL"],
 +    ["メールアドレスを入力して下さい", "EMAIL"],
 +    ["お住まいの都道府県名", "REGION"],
-+    ["携帯番号", "PHONE"],
++    ["携帯番号", "MOBILE"],
 +    ["フリガナ（セイ）", "FAMILY_KANA"],
 +    ["フリガナ（メイ）", "GIVEN_KANA"],
 +    ["ふりがな姓", "FAMILY_KANA"],
@@ -1478,7 +1530,7 @@ index 0000000..14500e5
 +    ["town_chome", "TOWN_CHOME"],
 +    ["profile.buildingName", "BUILDING"],
 +    ["profile[telephone_number]", "PHONE"],
-+    ["profile_phoneMobile", "PHONE"],
++    ["profile_phoneMobile", "MOBILE"],
 +    ["_mail", "EMAIL"],
 +    ["eMail1", "EMAIL"],
 +    ["profile[email_confirmation]", "EMAIL"],
@@ -1806,7 +1858,7 @@ index 0000000..14500e5
 +        })),
 +      ),
 +    ).toEqual(["UNKNOWN", "POSTAL", "UNKNOWN"]);
-+    expect(kinds({ name: "tel1", maxLength: 13, caption: "携帯番号" })).toEqual(["PHONE"]);
++    expect(kinds({ name: "tel1", maxLength: 13, caption: "携帯番号" })).toEqual(["MOBILE"]);
 +  });
 +
 +  it("partitions three numbered address lines against an earlier region field", () => {
@@ -2190,10 +2242,10 @@ index 0000000..14500e5
 +});
 diff --git a/apps/browser/src/autofill/jev/jev-model.ts b/apps/browser/src/autofill/jev/jev-model.ts
 new file mode 100644
-index 0000000..b159a95
+index 0000000..5304c6c
 --- /dev/null
 +++ b/apps/browser/src/autofill/jev/jev-model.ts
-@@ -0,0 +1,630 @@
+@@ -0,0 +1,693 @@
 +// Classification of page fields: on-device rules first, Jev for everything they cannot decide.
 +// Jev receives only the page's own text about each field (labels, placeholders, names), never a
 +// profile value, the page URL or a password field.
@@ -2211,6 +2263,7 @@ index 0000000..b159a95
 +  ADDRESS_BITS,
 +  isAddress,
 +  isCompatible,
++  isWithin,
 +  identifierKind,
 +  JevKind,
 +  JevShape,
@@ -2254,10 +2307,14 @@ index 0000000..b159a95
 +  REGION_CITY: "都道府県と市区町村をまとめて入れる欄",
 +  ADDRESS_FULL:
 +    "住所をまとめて入れる欄（都道府県・市区町村・番地・建物のうち複数）。他の欄が受け持つ部分は自動で除く",
-+  PHONE: "電話番号全体を1つの欄に入れる",
++  PHONE: "自宅・固定電話または種類指定のない電話番号全体を1つの欄に入れる",
 +  PHONE_1: "電話番号の最初の区切り（市外局番など）の欄",
 +  PHONE_2: "電話番号の真ん中の区切りの欄",
 +  PHONE_3: "電話番号の最後の区切りの欄",
++  MOBILE: "携帯電話番号全体を1つの欄に入れる（携帯・mobile・cell）",
++  MOBILE_1: "携帯電話番号の最初の区切り（090など）の欄",
++  MOBILE_2: "携帯電話番号の真ん中の区切りの欄",
++  MOBILE_3: "携帯電話番号の最後の区切りの欄",
 +  EMAIL: "メールアドレス（確認用の再入力欄も含む）",
 +  BIRTHDATE: "生年月日を1つの欄に入れる",
 +  BIRTH_ERA: "生年月日の元号（昭和・平成など）の欄",
@@ -2303,7 +2360,12 @@ index 0000000..b159a95
 +  maskOf("AGE") |
 +  maskOf("COUNTRY");
 +const workplaceMask = ADDRESS_BITS | maskOf("POSTAL") | maskOf("PHONE");
++const nonPersonalPhone = (f: JevPageField) =>
++  /fax|勤務先電話|会社電話|緊急連絡先|(?:work|company|employer)[_\s.-]*(?:tel|phone|mobile)/iu.test(
++    [f.caption, f.ariaLabel, rowHeading(f.context).text, f.name, f.htmlId].join(" "),
++  );
 +const sectionKind = (f: JevPageField, kind: JevKind): JevKind =>
++  ((maskOf(kind) & maskOf("PHONE")) !== 0 && nonPersonalPhone(f)) ||
 +  (otherPerson(f) && (maskOf(kind) & personalMask) !== 0) ||
 +  (workplace(f) && (maskOf(kind) & workplaceMask) !== 0)
 +    ? "UNKNOWN"
@@ -2512,7 +2574,19 @@ index 0000000..b159a95
 +    .concat([f.name, f.htmlId].map(identifierKind))
 +    .concat(f.autocomplete.split(/\s+/).filter(Boolean).map(labelKind));
 +  const heading = rowHeading(f.context);
-+  const existing = localChoice(shape, hints);
++  let existing = localChoice(shape, hints);
++  // What the user sees wins over hidden identifiers for the phone line: a field captioned
++  // 電話番号 stays a general phone even when its name says "mobile", so a landline-only profile
++  // still fills it.
++  const visible = [f.caption, f.ariaLabel, f.placeholder].map(labelKind);
++  if (
++    isWithin(existing, "MOBILE") &&
++    existing.startsWith("MOBILE") &&
++    visible.some((k) => k.startsWith("PHONE")) &&
++    !visible.some((k) => k.startsWith("MOBILE"))
++  ) {
++    existing = existing.replace("MOBILE", "PHONE") as JevKind;
++  }
 +  // Conflicting hints, numbered address lines and ambiguous street ranges need more evidence.
 +  const ambiguous =
 +    hints.some((hint) => hint !== "UNKNOWN") ||
@@ -2523,7 +2597,7 @@ index 0000000..b159a95
 +    (heading.kind === "BIRTHDATE" && shape === "LIST") ||
 +    (heading.kind === "FULL_KANA" && /会社|学校|部署|学部|学科/u.test(f.context)) ||
 +    (heading.kind === "ADDRESS_FULL" && /〒/u.test(f.context)) ||
-+    (heading.kind === "PHONE" && numberedField(f) !== null && f.maxLength > 6);
++    (["PHONE", "MOBILE"].includes(heading.kind) && numberedField(f) !== null && f.maxLength > 6);
 +  const kind =
 +    existing !== "UNKNOWN"
 +      ? existing
@@ -2609,11 +2683,12 @@ index 0000000..b159a95
 +      heading.kind !== "ADDRESS_FULL" &&
 +      !fields.slice(start, end).some((f) => /\{\{/u.test(f.context)) &&
 +      (heading.kind !== "BIRTHDATE" || !shapes.slice(start, end).includes("LIST")) &&
-+      (heading.kind !== "PHONE" ||
++      (!["PHONE", "MOBILE"].includes(heading.kind) ||
 +        fields
 +          .slice(start, end)
 +          .every((f, i) => f.maxLength < 0 || f.maxLength <= (i === 0 ? 6 : 4))) &&
-+      (count === bitCount(maskOf(heading.kind)) || (heading.kind === "BIRTHDATE" && count === 3)) &&
++      (count === bitCount(maskOf(heading.kind) & ~(1 << 30)) ||
++        (heading.kind === "BIRTHDATE" && count === 3)) &&
 +      (chosen[start] === "UNKNOWN" || chosen[start] === heading.kind)
 +    ) {
 +      const parts = refine(shapes.slice(start, end), Array<JevKind>(count).fill(heading.kind));
@@ -2649,8 +2724,14 @@ index 0000000..b159a95
 +    }
 +    const base = identifierKind(numbered[0]!.base);
 +    let parts: JevKind[];
-+    if (base === "PHONE" && run.every((f) => f.maxLength > 0 && f.maxLength <= 6)) {
-+      parts = ["PHONE_1", "PHONE_2", "PHONE_3"];
++    if (
++      ["PHONE", "MOBILE"].includes(base) &&
++      run.every((f) => f.maxLength > 0 && f.maxLength <= 6)
++    ) {
++      parts =
++        base === "MOBILE" || chosen.slice(i, i + 3).some((k) => k.startsWith("MOBILE"))
++          ? ["MOBILE_1", "MOBILE_2", "MOBILE_3"]
++          : ["PHONE_1", "PHONE_2", "PHONE_3"];
 +    } else if (base === "ADDRESS_FULL") {
 +      parts = [
 +        chosen[i - 1] === "REGION" && sameSection(fields[i - 1], run[0]) ? "CITY" : "REGION_CITY",
@@ -2663,7 +2744,8 @@ index 0000000..b159a95
 +    if (
 +      parts.every(
 +        (kind, part) =>
-+          (chosen[i + part] === "UNKNOWN" || (maskOf(kind) & ~maskOf(chosen[i + part])) === 0) &&
++          (chosen[i + part] === "UNKNOWN" ||
++            (maskOf(kind) & ~(1 << 30) & ~maskOf(chosen[i + part])) === 0) &&
 +          isCompatible(shapes[i + part], kind),
 +      )
 +    ) {
@@ -2794,6 +2876,39 @@ index 0000000..b159a95
 +        [field.caption, field.ariaLabel, field.placeholder, field.after ?? "", constraints],
 +        field.maxLength,
 +      );
++      // Split boxes inherit the first box's landline caption, within the same section only.
++      let phoneStart = i;
++      if (/^PHONE_[123]$/u.test(kind)) {
++        const part = Number(kind.slice(-1));
++        if (
++          i >= part - 1 &&
++          fields
++            .slice(i - part + 1, i + 1)
++            .every(
++              (f, offset) =>
++                sameSection(f, field) && kinds[i - part + 1 + offset] === `PHONE_${offset + 1}`,
++            )
++        ) {
++          phoneStart = i - part + 1;
++        }
++      }
++      format.landline =
++        format.landline ||
++        fields
++          .slice(phoneStart, i + 1)
++          .some((f) =>
++            /自宅|固定|home|landline/iu.test(
++              [
++                f.caption,
++                f.ariaLabel,
++                rowHeading(f.context).text,
++                f.group,
++                f.section,
++                f.name,
++                f.htmlId,
++              ].join(" "),
++            ),
++          );
 +      value = constrainedValue(
 +        render(kind, format, shapes[i], profile, today),
 +        field.pattern,
@@ -5380,3 +5495,256 @@ index 0000000..e83530e
 +  const text = f.caption || f.ariaLabel || f.placeholder || f.context || f.name || f.htmlId;
 +  return text.slice(0, 40) || `欄 ${item.id + 1}`;
 +}
+diff --git a/apps/browser/src/autofill/jev/jev-mobile.spec.ts b/apps/browser/src/autofill/jev/jev-mobile.spec.ts
+new file mode 100644
+index 0000000..344b150
+--- /dev/null
++++ b/apps/browser/src/autofill/jev/jev-mobile.spec.ts
+@@ -0,0 +1,247 @@
++import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
++
++import { JevProfile, parseFormat, render, toJevProfile } from "./jev-format";
++import {
++  identifierKind,
++  isCompatible,
++  kindOf,
++  labelKind,
++  maskOf,
++  refine,
++  JevKind,
++} from "./jev-kinds";
++import { jevRequest, localKind, parseJevAnswers, planRows } from "./jev-model";
++import type { JevPageField } from "./jev-page";
++
++const today = { year: 2026, month: 10, day: 6 };
++const field = (over: Partial<JevPageField> = {}): JevPageField => ({
++  id: 0,
++  type: "tel",
++  labels: [],
++  caption: "",
++  ariaLabel: "",
++  placeholder: "",
++  name: "",
++  htmlId: "",
++  context: "",
++  group: "",
++  autocomplete: "",
++  maxLength: -1,
++  options: [],
++  occupied: false,
++  ...over,
++});
++const mobile = "090-0000-0000";
++const home = "03-0000-0000";
++const output = (kind: JevKind, p: JevProfile, text = "") =>
++  render(kind, parseFormat([text, "ハイフンあり"], -1), "TEL", p, today);
++
++describe("mobile and landline phones", () => {
++  it.each([
++    "携帯",
++    "携帯電話",
++    "携帯電話番号",
++    "携帯番号",
++    "ケータイ",
++    "モバイル",
++    "mobile",
++    "cell",
++    "cellphone",
++    "keitai",
++    "mobile_tel",
++    "tel_mobile",
++  ])("classifies mobile %s", (text) => {
++    expect(labelKind(text)).toBe("MOBILE");
++    expect(identifierKind(text)).toBe("MOBILE");
++    expect(localKind(field({ caption: text, autocomplete: "tel" }))).toBe("MOBILE");
++  });
++
++  it.each([
++    "自宅電話",
++    "固定電話",
++    "ご自宅",
++    "自宅TEL",
++    "home tel",
++    "home phone",
++    "landline",
++    "電話番号",
++    "TEL",
++    "phone",
++  ])("classifies personal phone %s", (text) => {
++    expect(labelKind(text)).toBe("PHONE");
++    expect(localKind(field({ caption: text }))).toBe("PHONE");
++  });
++
++  it.each(["FAX", "勤務先電話", "会社電話", "緊急連絡先"])(
++    "leaves non-personal %s unknown",
++    (text) => {
++      expect(localKind(field({ caption: text, autocomplete: "tel" }))).toBe("UNKNOWN");
++      const f = field({ caption: text, autocomplete: "tel" });
++      expect(
++        planRows([f], { phone: mobile }, { 0: { kind: "MOBILE", confidence: 0.9 } })[0].kind,
++      ).toBe("UNKNOWN");
++    },
++  );
++
++  it.each(["fax_phone", "work_phone", "company_phone", "emergency_mobile"])(
++    "rejects non-personal identifier %s",
++    (name) => {
++      expect(identifierKind(name)).toBe("UNKNOWN");
++    },
++  );
++
++  it("keeps masks stable and supports mobile shapes and refinement", () => {
++    expect(kindOf(maskOf("PHONE"))).toBe("PHONE");
++    for (const [i, kind] of (
++      ["MOBILE", "MOBILE_1", "MOBILE_2", "MOBILE_3"] as JevKind[]
++    ).entries()) {
++      expect(maskOf(kind)).toBe(maskOf(i ? (`PHONE_${i}` as JevKind) : "PHONE") | (1 << 30));
++      expect(isCompatible("TEL", kind)).toBe(true);
++      expect(isCompatible("NUMBER", kind)).toBe(true);
++    }
++    expect(refine(["TEL", "TEL", "TEL"], ["MOBILE", "MOBILE", "MOBILE"])).toEqual([
++      "MOBILE_1",
++      "MOBILE_2",
++      "MOBILE_3",
++    ]);
++    expect(refine(["TEL", "TEL", "TEL", "TEL"], ["MOBILE", "MOBILE", "MOBILE", "MOBILE"])).toEqual([
++      "MOBILE",
++      "MOBILE",
++      "MOBILE",
++      "MOBILE",
++    ]);
++  });
++
++  it.each([
++    ["MOBILE", { phone: home, mobilePhone: mobile }, "", mobile],
++    ["MOBILE", { phone: mobile }, "", mobile],
++    ["MOBILE", { phone: home }, "", null],
++    ["MOBILE", {}, "", null],
++    ["PHONE", { phone: home, mobilePhone: mobile }, "自宅電話", home],
++    ["PHONE", { phone: mobile, mobilePhone: mobile }, "固定電話", null],
++    ["PHONE", { mobilePhone: mobile }, "home phone", null],
++    ["PHONE", { phone: home, mobilePhone: mobile }, "", home],
++    ["PHONE", { phone: mobile, mobilePhone: "080-0000-0000" }, "", mobile],
++    ["PHONE", { mobilePhone: mobile }, "", mobile],
++    ["PHONE", {}, "", null],
++  ] as [JevKind, JevProfile, string, string | null][])(
++    "selects %s from %j (%s)",
++    (kind, p, text, expected) => {
++      expect(output(kind, p, text)).toBe(expected);
++      if (expected) {
++        expect(output(`${kind}_1` as JevKind, p, text)).toBe(expected.split("-")[0]);
++        expect(output(`${kind}_2` as JevKind, p, text)).toBe("0000");
++        expect(output(`${kind}_3` as JevKind, p, text)).toBe("0000");
++      } else {
++        expect(output(`${kind}_1` as JevKind, p, text)).toBeNull();
++      }
++    },
++  );
++
++  it.each(["060", "070", "080", "090"])(
++    "recognizes prefix %s after removing punctuation",
++    (prefix) => {
++      expect(output("MOBILE", { phone: `${prefix} 0000 0000` })).toBe(`${prefix}-0000-0000`);
++      expect(output("PHONE", { phone: `${prefix}-0000-0000` }, "landline")).toBeNull();
++    },
++  );
++
++  it("reads the encrypted custom key and rejects duplicate keys", () => {
++    const cipher = {
++      identity: { phone: home },
++      fields: [{ type: 1, name: "jev.mobile_phone", value: mobile }],
++    } as CipherView;
++    expect(toJevProfile(cipher)?.mobilePhone).toBe(mobile);
++    cipher.fields!.push(cipher.fields![0]);
++    expect(toJevProfile(cipher)?.mobilePhone).toBeUndefined();
++  });
++
++  it("splits mobile captions, separator headings and numbered identifiers", () => {
++    for (const fields of [
++      [0, 1, 2].map((id) => field({ id, caption: "携帯電話", maxLength: 4 })),
++      ["携帯電話 －", "－", "－"].map((context, id) => field({ id, context, maxLength: 4 })),
++      ["携帯", "携帯 －", "携帯 － －"].map((context, id) => field({ id, context, maxLength: 4 })),
++      [1, 2, 3].map((n) => field({ id: n, name: `mobile_tel${n}`, maxLength: 4 })),
++      [1, 2, 3].map((n) =>
++        field({ id: n, name: `tel${n}`, caption: n === 1 ? "携帯電話" : "", maxLength: 4 }),
++      ),
++    ]) {
++      const rows = planRows(fields, { phone: home, mobilePhone: mobile });
++      expect(rows.map((r) => r.kind)).toEqual(["MOBILE_1", "MOBILE_2", "MOBILE_3"]);
++      expect(rows.map((r) => r.value)).toEqual(["090", "0000", "0000"]);
++    }
++  });
++
++  it("inherits landline evidence across split boxes and respects sections", () => {
++    const fields = ["自宅電話 －", "－", "－"].map((context, id) =>
++      field({ id, context, maxLength: 4 }),
++    );
++    expect(planRows(fields, { phone: mobile, mobilePhone: mobile }).map((r) => r.value)).toEqual([
++      null,
++      null,
++      null,
++    ]);
++    expect(planRows(fields, { phone: home }).map((r) => r.value)).toEqual(["03", "0000", "0000"]);
++    expect(localKind(field({ caption: "携帯電話", section: "勤務先" }))).toBe("UNKNOWN");
++    expect(localKind(field({ caption: "携帯電話", section: "緊急連絡先" }))).toBe("UNKNOWN");
++  });
++
++  it("formats mobile width and hyphens", () => {
++    expect(
++      render(
++        "MOBILE",
++        parseFormat(["全角数字 ハイフンあり"], -1),
++        "TEL",
++        { mobilePhone: "09000000000" },
++        today,
++      ),
++    ).toBe("０９０－００００－００００");
++    expect(
++      render("MOBILE", parseFormat(["ハイフンなし"], -1), "NUMBER", { mobilePhone: mobile }, today),
++    ).toBe("09000000000");
++  });
++
++  it.each(["MOBILE", "MOBILE_1", "MOBILE_2", "MOBILE_3"] as JevKind[])(
++    "validates Jev choice %s",
++    (kind) => {
++      const request = jevRequest([field()]);
++      expect(request.questions.field_no_0.criteria[kind]).toBeDefined();
++      expect(
++        parseJevAnswers(
++          {
++            answers: {
++              field_no_0: {
++                type: "choice",
++                choice: kind,
++                confidence: 0.9,
++                probabilities: { [kind]: 0.9 },
++              },
++            },
++          },
++          request,
++        )[0].kind,
++      ).toBe(kind);
++    },
++  );
++  it("keeps a visibly generic phone field general even when its name says mobile", () => {
++    const field: JevPageField = {
++      id: 0,
++      type: "tel",
++      labels: [],
++      caption: "電話番号",
++      ariaLabel: "",
++      placeholder: "",
++      name: "customer_phoneMobile",
++      htmlId: "",
++      context: "",
++      group: "",
++      autocomplete: "",
++      maxLength: -1,
++      options: [],
++      occupied: false,
++    };
++    expect(localKind(field)).toBe("PHONE");
++    expect(localKind({ ...field, caption: "携帯電話番号" })).toBe("MOBILE");
++    expect(localKind({ ...field, caption: "" })).toBe("MOBILE");
++  });
++});
