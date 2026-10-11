@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 import re
 import subprocess
+import sys
 import time
 import uuid
 import xml.etree.ElementTree as ET
@@ -14,7 +15,14 @@ if not re.fullmatch(r"emulator-\d+", SERIAL):
     raise SystemExit("This automated probe test only operates on an emulator.")
 
 def adb(*args):
-    return subprocess.check_output(["rtk", "proxy", str(ADB), "-s", SERIAL, *args], text=True, timeout=30)
+    return subprocess.check_output([str(ADB), "-s", SERIAL, *args], text=True, timeout=30)
+
+def cleanup(*args):
+    # Best effort: one failed step must not leave the DevTools forward or the probe service behind.
+    try:
+        adb(*args)
+    except (subprocess.SubprocessError, OSError):
+        print("WARNING: cleanup step failed: adb " + " ".join(args[:4]), file=sys.stderr)
 
 def nodes():
     for _ in range(3):
@@ -76,7 +84,7 @@ def main():
             adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url, "-p", "com.android.chrome")
             find(os.environ.get("PROBE_FOCUS", "姓"), True)
             debug_port = adb("forward", "tcp:0", "localabstract:chrome_devtools_remote").strip()
-            verify = ["rtk", "proxy", "node", str(Path(__file__).with_name("verify-chrome.mjs")), debug_port, url]
+            verify = ["node", str(Path(__file__).with_name("verify-chrome.mjs")), debug_port, url]
             subprocess.run([*verify, "ready"], check=True, timeout=15)
         else:
             find("同梱のダミーフォームを開く", True, scroll=True)
@@ -156,16 +164,16 @@ def main():
               + (f" {page} filled every expected field" if page
                  else " fixture filled 5 fields, preserved existing value and hidden field"))
     finally:
-        adb("shell", "am", "force-stop", "dev.ryu.jevprobe")  # discard in-memory key
+        cleanup("shell", "am", "force-stop", "dev.ryu.jevprobe")  # discard in-memory key
         if original in ("", "null"):
-            adb("shell", "settings", "delete", "secure", "autofill_service")
+            cleanup("shell", "settings", "delete", "secure", "autofill_service")
         else:
-            adb("shell", "settings", "put", "secure", "autofill_service", original)
-        adb("shell", "rm", "-f", "/data/local/tmp/jev-probe-ui.xml")
+            cleanup("shell", "settings", "put", "secure", "autofill_service", original)
+        cleanup("shell", "rm", "-f", "/data/local/tmp/jev-probe-ui.xml")
         if chrome:
-            adb("reverse", "--remove", "tcp:8765")
+            cleanup("reverse", "--remove", "tcp:8765")
         if debug_port:
-            adb("forward", "--remove", "tcp:" + debug_port)
+            cleanup("forward", "--remove", "tcp:" + debug_port)
 
 if __name__ == "__main__":
     main()

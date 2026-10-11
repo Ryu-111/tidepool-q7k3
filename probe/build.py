@@ -15,7 +15,7 @@ BUILD = ROOT / ".build"
 ENV = {**os.environ, "JAVA_HOME": str(JDK)}
 
 def run(*args):
-    subprocess.run(["rtk", "proxy", *map(str, args)], cwd=ROOT, env=ENV, check=True)
+    subprocess.run(list(map(str, args)), cwd=ROOT, env=ENV, check=True)
 
 def main():
     for required in (TOOLS / "aapt2", ANDROID, JDK / "bin/javac"):
@@ -27,14 +27,14 @@ def main():
         if target.exists():
             shutil.rmtree(target)
         target.mkdir()
-    run(JDK / "bin/javac", "--release", "8", "-encoding", "UTF-8", "-d", BUILD / "tests",
+    run(JDK / "bin/javac", "--release", "8", "-Xlint:-options", "-encoding", "UTF-8", "-d", BUILD / "tests",
         ROOT / "src/dev/ryu/jevprobe/Policy.java", ROOT / "src/dev/ryu/jevprobe/Profile.java",
         ROOT / "test/dev/ryu/jevprobe/PolicyTest.java")
     run(JDK / "bin/java", "-cp", BUILD / "tests", "dev.ryu.jevprobe.PolicyTest")
     run(TOOLS / "aapt2", "compile", "--dir", ROOT / "res", "-o", BUILD / "resources.zip")
     run(TOOLS / "aapt2", "link", "-I", ANDROID, "--manifest", ROOT / "AndroidManifest.xml",
         "-o", BUILD / "unsigned.apk", BUILD / "resources.zip")
-    run(JDK / "bin/javac", "--release", "8", "-encoding", "UTF-8", "-classpath", ANDROID,
+    run(JDK / "bin/javac", "--release", "8", "-Xlint:-options", "-encoding", "UTF-8", "-classpath", ANDROID,
         "-d", BUILD / "classes", *sorted((ROOT / "src").rglob("*.java")))
     run(JDK / "bin/jar", "cf", BUILD / "classes.jar", "-C", BUILD / "classes", ".")
     run(TOOLS / "d8", "--lib", ANDROID, "--min-api", "29", "--output", BUILD / "dex", BUILD / "classes.jar")

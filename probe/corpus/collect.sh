@@ -3,22 +3,25 @@
 # follow at most one form link, score, and log. Only value-free JSON is written to raw/.
 set -u
 cat=$1; url=$2; C=${0:A:h}
-H=/private/tmp/claude-501/-Users-ryu-smart-home-agent/ea0f3566-edab-4224-9f1e-9401dc333df9/scratchpad/corpus-html
+H=${CORPUS_HTML:-$C/html}  # fetched HTML stays local (ignored by Git)
 UA="jev-autofill-research/0.1 (form structure survey)"
+# Untrusted pages pick the next URL: http(s) only, at most 3 redirects, public hosts only.
+fetch() { curl -s --proto '=http,https' --proto-redir '=http,https' --max-redirs 3 -A "$UA" "$@"; }
 mkdir -p $H $C/raw/$cat; log=$C/raw/$cat-log2.tsv
 [ -f $log ] || print "status\tscore\tfields\turl\tnote" > $log
 note() { print "$1\t${2:-0}\t${3:-0}\t$url\t${4:-}" >> $log; echo "$1 score=${2:-0} $url ${4:-}"; }
 host=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.urlparse(sys.argv[1]).hostname or "")' "$url")
 [ -z "$host" ] && { note bad-url; exit 0; }
+python3 $C/public_url.py "$url" || { note non-public; exit 0; }
 grep -qF "$url" $log 2>/dev/null && [ "$(grep -cF "$url" $log)" -gt 0 ] && { echo "already tried $url"; exit 0; }
 upath=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.urlparse(sys.argv[1]).path or "/")' "$url")
-if curl -s -m 15 -A "$UA" "https://$host/robots.txt" | python3 -c '
+if fetch -m 15 "https://$host/robots.txt" | python3 -c '
 import sys, urllib.robotparser
 rp = urllib.robotparser.RobotFileParser(); rp.parse(sys.stdin.read().splitlines())
 sys.exit(0 if rp.can_fetch("*", sys.argv[1]) else 1)' "$url"; then :; else note robots; exit 0; fi
 slug=$(print -r -- "$host$upath" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-80)
 f=$H/$cat-$slug.html
-code=$(curl -sL -m 20 -A "$UA" -o $f -w '%{http_code}' "$url")
+code=$(fetch -L -m 20 -o $f -w '%{http_code}' "$url")
 [ "$code" != 200 ] && { note http-$code; exit 0; }
 title=$(python3 -c 'import re,sys;t=re.search(rb"<title[^>]*>(.*?)</title>",open(sys.argv[1],"rb").read(),re.S|re.I);print(t.group(1).decode("utf-8","replace").strip()[:60] if t else "")' $f)
 case "$title" in *404*|*見つかりません*|*"Not Found"*|*存在しません*) note not-found 0 0 "$title"; exit 0;; esac
@@ -52,9 +55,9 @@ for m in re.finditer(r'<a\b[^>]*href="([^"#]+)"[^>]*>(.*?)</a>', html, re.S | re
 if best[0] >= 2: print(best[1])
 PY
 )
-  if [ -n "$next" ]; then
+  if [ -n "$next" ] && python3 $C/public_url.py "$next"; then
     sleep 3; nf=$f.next.html
-    ncode=$(curl -sL -m 20 -A "$UA" -o $nf -w '%{http_code}' "$next")
+    ncode=$(fetch -L -m 20 -o $nf -w '%{http_code}' "$next")
     if [ "$ncode" = 200 ]; then
       s=$(extract $nf "$next" $out)
       [ "$s" -lt 4 ] && { sleep 2; $C/render.sh "$next" $nf.r.html >/dev/null && s=$(extract $nf.r.html "$next" $out); }

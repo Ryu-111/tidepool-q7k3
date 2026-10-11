@@ -2,6 +2,7 @@
 # render.sh <url> <out.html>: GET one public page in a throwaway headless Chrome profile and save
 # the DOM after scripts ran. No cookies, logins, or form submissions; the profile is deleted after.
 url=$1; out=$2
+python3 "${0:A:h}/public_url.py" "$url" || { echo "refusing a non-public URL"; exit 1; }
 prof=$(mktemp -d "${TMPDIR:-/tmp}/jev-render.XXXXXX")
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
   --user-data-dir="$prof" --no-first-run --no-default-browser-check --disable-extensions \

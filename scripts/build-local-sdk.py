@@ -13,7 +13,7 @@ VERSION = "3.0.0-jev-local-8b9fa3e2"
 
 def main():
     revision = subprocess.check_output(
-        ["rtk", "proxy", "git", "-C", str(SOURCE), "rev-parse", "HEAD"], text=True).strip()
+        ["git", "-C", str(SOURCE), "rev-parse", "HEAD"], text=True).strip()
     if revision != COMMIT:
         raise SystemExit("SDK checkout does not match the Android dependency revision.")
     env = os.environ.copy()
@@ -29,7 +29,7 @@ def main():
                AR_aarch64_linux_android=str(llvm / "llvm-ar"))
 
     def run(*args, cwd=SOURCE):
-        subprocess.run(["rtk", "proxy", *map(str, args)], cwd=cwd, env=env, check=True)
+        subprocess.run(list(map(str, args)), cwd=cwd, env=env, check=True)
 
     run("cargo", "build", "--locked", "-p", "bitwarden-uniffi", "--release", "--target", "aarch64-linux-android")
     kotlin = SOURCE / "crates/bitwarden-uniffi/kotlin"

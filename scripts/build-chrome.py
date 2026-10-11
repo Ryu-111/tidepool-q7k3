@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build the personal unpacked Chrome extension; no secrets or vault files are packaged."""
+import fnmatch
 import hashlib
 import json
 import os
@@ -11,10 +12,21 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 CLIENTS = ROOT / "clients"
 RUNTIME = ROOT / ".tools/node-v24.17.0-darwin-arm64/bin"
+# File names that must never ship, whatever the build copies in.
+SECRET_NAMES = (".env", ".env.*", "*.pem", "*.key", "*.p12", "*.jks", "*.keystore", "credentials*",
+                "user.properties", "local.json")
+
+
+def secret_files(build):
+    return sorted(str(path.relative_to(build)) for path in build.rglob("*")
+                  if path.is_file() and any(fnmatch.fnmatch(path.name.lower(), name) for name in SECRET_NAMES))
 
 
 def package():
     build = CLIENTS / "apps/browser/build"
+    found = secret_files(build)
+    if found:
+        raise SystemExit("Refusing to package secret-like files: " + ", ".join(found))
     manifest_file = build / "manifest.json"
     manifest = json.loads(manifest_file.read_text())
     assert manifest["manifest_version"] == 3
@@ -53,6 +65,6 @@ if __name__ == "__main__":
     # Normal hosted-account selection must remain available in this personal development build.
     if json.loads(config.read_text()).get("devFlags", {}).get("managedEnvironment") is not None:
         raise SystemExit("Local config forces a managed server; inspect it before building.")
-    subprocess.run(["rtk", "proxy", "npm", "run", "build:chrome", "--workspace", "@bitwarden/browser",
+    subprocess.run(["npm", "run", "build:chrome", "--workspace", "@bitwarden/browser",
                     "--", "--stats", "errors-only"], cwd=CLIENTS, env=env, check=True)
     package()

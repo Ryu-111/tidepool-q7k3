@@ -6,7 +6,7 @@ Personal Bitwarden modification (Chrome extension and Android) that bulk-fills a
 
 - Everything committed (docs, comments, identifiers, commit messages) is in English; use Conventional Commits. Japanese stays only where it is test data or matched UI text (form labels, fixtures, probe app strings).
 - Read the "Rules" in README.md and the open issues in COORDINATION.md first.
-- Run shell commands through `rtk`; use `rtk proxy <command>` when exact output or exit codes matter.
+- Run commands directly. `rtk` is optional and only for compressing long search, diff or test output; never rely on compressed output to conclude something is absent. Scripts must not require `rtk`.
 
 ## Repository layout
 
@@ -40,7 +40,7 @@ Personal Bitwarden modification (Chrome extension and Android) that bulk-fills a
 
 ## Secrets
 
-- Never read, print or copy the root `.env` (`OPENROUTER_API_KEY=`, mode 600). Check connectivity with `rtk proxy python3 probe/live_check.py`, which prints neither the key nor the response body.
+- Never read, print or copy the root `.env` (`OPENROUTER_API_KEY=`, mode 600). Check connectivity with `python3 probe/live_check.py`, which prints neither the key nor the response body.
 - Keep keys out of APKs, fixtures, logs, tests and docs. Use synthetic data only (e.g. the dummy identity "Jev試験"), never real vault data.
 - Live OpenRouter calls cost money; run them only when the user asks. Unit tests use mocks or local servers.
 - Do not read `*.jks`, `*.keystore` or `user.properties`.
@@ -49,24 +49,25 @@ Personal Bitwarden modification (Chrome extension and Android) that bulk-fills a
 
 ```sh
 # probe (from the root)
-rtk proxy python3 probe/build.py                          # JVM policy tests + APK
-(cd probe && rtk proxy python3 -m unittest -v test_live_check.py test_emulator_key.py)
-PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 rtk proxy python3 probe/smoke.py   # device E2E (LOCAL)
+python3 probe/build.py                          # JVM policy tests + APK (CI: probe-apk)
+(cd probe && python3 -m unittest -v test_live_check.py test_emulator_key.py)
+(cd probe/corpus && python3 -m unittest -v test_public_url.py)
+PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 python3 probe/smoke.py   # device E2E (LOCAL)
 
 # Android (in android/)
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ANDROID_HOME=$HOME/Library/Android/sdk \
-  rtk proxy ./gradlew --offline --no-daemon --max-workers=2 -I ../scripts/local-sdk.init.gradle \
+  ./gradlew --offline --no-daemon --max-workers=2 -I ../scripts/local-sdk.init.gradle \
   :app:testStandardDebugUnitTest --tests '*Jev*Test'
 # same environment for :app:detekt and :app:assembleStandardDebug
 
 # Chrome extension (in clients/, with ../.tools/node-v24.17.0-darwin-arm64/bin first on PATH)
-rtk proxy npx jest --config apps/browser/jest.config.js --runInBand apps/browser/src/autofill/jev apps/browser/src/autofill/popup/jev
-rtk proxy npx eslint apps/browser/src/autofill/jev apps/browser/src/autofill/popup/jev
-rtk proxy npx tsc --noEmit -p apps/browser/tsconfig.json
-rtk proxy python3 ../scripts/build-chrome.py              # production build + ZIP (~15 min)
+npx jest --config apps/browser/jest.config.js --runInBand apps/browser/src/autofill/jev apps/browser/src/autofill/popup/jev
+npx eslint apps/browser/src/autofill/jev apps/browser/src/autofill/popup/jev
+npx tsc --noEmit -p apps/browser/tsconfig.json
+python3 ../scripts/build-chrome.py              # production build + ZIP (~15 min)
 ```
 
-- Local SDK build: `rtk proxy python3 scripts/build-local-sdk.py` (no GitHub token).
+- Local SDK build: `python3 scripts/build-local-sdk.py` (no GitHub token).
 - Stable emulator flags: `-gpu swiftshader_indirect -feature -Vulkan -no-window`. Afterwards stop the emulator and restore the autofill service.
 
 ## Known pitfalls
@@ -77,7 +78,7 @@ rtk proxy python3 ../scripts/build-chrome.py              # production build + Z
 
 ## Verification and reporting
 
-- `main` is protected: work on a branch and open a PR; squash-merge after the required checks pass (`python`, `jvm-policy`, `ruff`, `actionlint`, `gitleaks`, `dependency-review`, `codeql (*)`). The admin bypass is for emergencies and trivial doc fixes only.
+- `main` is protected: work on a branch and open a PR; squash-merge after the required checks pass (`python`, `jvm-policy`, `probe-apk`, `ruff`, `actionlint`, `gitleaks`, `dependency-review`, `codeql (*)`). The admin bypass is for emergencies and trivial doc fixes only.
 - CI covers this repository only (`.github/workflows/`); `android/` and `clients/` are not covered. Run `uvx ruff@0.16.10 check .` before pushing Python changes. Pin new actions to a commit SHA; Dependabot updates them weekly.
 - Test the changed behavior and its failure paths before calling it done. Kotlin (detekt, Gradle) is not covered by hooks; run it manually.
 - Keep these apart: unit test vs device E2E, LOCAL vs `JEV LIVE (no request)` vs a real Jev query, emulator vs physical device, localhost vs real HTTPS sites. State what is unverified.
