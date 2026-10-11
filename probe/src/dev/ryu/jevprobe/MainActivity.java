@@ -7,6 +7,7 @@ import android.os.*;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.*;
+import android.view.inputmethod.EditorInfo;
 import android.widget.*;
 
 public final class MainActivity extends Activity {
@@ -34,7 +35,9 @@ public final class MainActivity extends Activity {
         text(this, box, "自己テスト: " + JsonSelfTest.run());
         EditText key = new EditText(this);
         key.setHint("OpenRouter APIキー（任意・保存なし）");
-        key.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        key.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD
+            | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        key.setImeOptions(EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING); // keyboard must not learn the key
         key.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
         key.setSaveEnabled(false);
         box.addView(key);

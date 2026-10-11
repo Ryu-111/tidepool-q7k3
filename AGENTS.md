@@ -51,6 +51,7 @@ Personal Bitwarden modification (Chrome extension and Android) that bulk-fills a
 # probe (from the root)
 python3 probe/build.py                          # JVM policy tests + APK (CI: probe-apk)
 (cd probe && python3 -m unittest -v test_live_check.py test_emulator_key.py)
+(cd probe/corpus && python3 -m unittest -v test_public_url.py)
 PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 python3 probe/smoke.py   # device E2E (LOCAL)
 
 # Android (in android/)

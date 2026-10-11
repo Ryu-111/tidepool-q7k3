@@ -15,7 +15,8 @@ The collected data (`raw/`, `excluded/`, `index.tsv`, `eval/*.tsv`, `eval/usable
 | `extract_form.py <html> <url> <category>` | Writes the value-free structure JSON of one HTML page (standard library only) |
 | `render.sh <url> <out.html>` | One GET in headless Chrome with a throwaway profile; saves the DOM after scripts run |
 | `profile_score.py <json>...` | Counts profile-like fields; 4+ counts as usable |
-| `collect.sh <category> <url>` | robots.txt check → static fetch → render if needed → follow one form-like link → extract, score, log. Skips non-200 and not-found pages; never retries a URL. Set `H=` inside for the HTML cache directory |
+| `collect.sh <category> <url>` | robots.txt check → static fetch → render if needed → follow one form-like link → extract, score, log. Skips non-200 and not-found pages; never retries a URL. HTML cache: `html/` (or `CORPUS_HTML`) |
+| `public_url.py <url>` | Fetch guard for `collect.sh` and `render.sh`: http(s) only, no loopback, private or link-local hosts |
 | `eval/to_tsv.py <json>...` | Flattens JSON into an approximation of the hints Chrome passes to Android |
 | `../test/dev/ryu/jevprobe/CorpusEval.java` | Classifies that TSV with the probe `Policy` |
 | `eval/jev-eval.ts` | Evaluates the Chrome extension classifier, optionally with Jev (key from the environment) |

@@ -11,6 +11,8 @@ reference/
 *.key
 *.jks
 *.keystore
+*.p12
+*.pfx
 *credentials*
 user.properties
 

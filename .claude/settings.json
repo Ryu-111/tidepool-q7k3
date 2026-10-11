@@ -23,16 +23,17 @@
       "Bash(git -C clients stash:*)"
     ],
     "deny": [
-      "Read(./.env)",
-      "Read(./.env.*)",
-      "Read(./**/.env)",
-      "Read(./**/*.jks)",
-      "Read(./**/*.keystore)",
-      "Read(./**/user.properties)",
-      "Edit(./.env)",
-      "Edit(./**/.env)",
-      "Bash(cat .env:*)",
-      "Bash(cat ./.env:*)"
+      "Read(//**/.env)",
+      "Read(//**/.env.*)",
+      "Read(//**/*.pem)",
+      "Read(//**/*.key)",
+      "Read(//**/*.p12)",
+      "Read(//**/*.jks)",
+      "Read(//**/*.keystore)",
+      "Read(//**/credentials*)",
+      "Read(//**/user.properties)",
+      "Edit(//**/.env)",
+      "Edit(//**/.env.*)"
     ]
   }
 }

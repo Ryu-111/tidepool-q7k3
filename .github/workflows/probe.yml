@@ -29,6 +29,9 @@ jobs:
           python-version: "3.12"
       - name: Unit tests (no network, synthetic keys only)
         run: python -m unittest -v test_live_check.py test_emulator_key.py
+      - name: Corpus fetch guard tests
+        working-directory: probe/corpus
+        run: python -m unittest -v test_public_url.py
 
   jvm-policy:
     name: jvm-policy
