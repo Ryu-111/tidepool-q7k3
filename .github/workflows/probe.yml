@@ -54,3 +54,24 @@ jobs:
           test/dev/ryu/jevprobe/PolicyTest.java
       - name: Run policy tests
         run: java -cp build/tests dev.ryu.jevprobe.PolicyTest
+
+  apk:
+    name: probe-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" --install "platforms;android-34" "build-tools;36.0.0" > /dev/null
+      # Policy tests, full Java compile against android.jar, dex, debug signing and apksigner verify.
+      - name: Build probe APK
+        run: python3 probe/build.py

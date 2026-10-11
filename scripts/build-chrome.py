@@ -53,6 +53,6 @@ if __name__ == "__main__":
     # Normal hosted-account selection must remain available in this personal development build.
     if json.loads(config.read_text()).get("devFlags", {}).get("managedEnvironment") is not None:
         raise SystemExit("Local config forces a managed server; inspect it before building.")
-    subprocess.run(["rtk", "proxy", "npm", "run", "build:chrome", "--workspace", "@bitwarden/browser",
+    subprocess.run(["npm", "run", "build:chrome", "--workspace", "@bitwarden/browser",
                     "--", "--stats", "errors-only"], cwd=CLIENTS, env=env, check=True)
     package()

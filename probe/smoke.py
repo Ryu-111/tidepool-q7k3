@@ -14,7 +14,7 @@ if not re.fullmatch(r"emulator-\d+", SERIAL):
     raise SystemExit("This automated probe test only operates on an emulator.")
 
 def adb(*args):
-    return subprocess.check_output(["rtk", "proxy", str(ADB), "-s", SERIAL, *args], text=True, timeout=30)
+    return subprocess.check_output([str(ADB), "-s", SERIAL, *args], text=True, timeout=30)
 
 def nodes():
     for _ in range(3):
@@ -76,7 +76,7 @@ def main():
             adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url, "-p", "com.android.chrome")
             find(os.environ.get("PROBE_FOCUS", "姓"), True)
             debug_port = adb("forward", "tcp:0", "localabstract:chrome_devtools_remote").strip()
-            verify = ["rtk", "proxy", "node", str(Path(__file__).with_name("verify-chrome.mjs")), debug_port, url]
+            verify = ["node", str(Path(__file__).with_name("verify-chrome.mjs")), debug_port, url]
             subprocess.run([*verify, "ready"], check=True, timeout=15)
         else:
             find("同梱のダミーフォームを開く", True, scroll=True)

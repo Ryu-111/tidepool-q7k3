@@ -5,7 +5,7 @@
 ## Build
 
 ```sh
-rtk proxy python3 build.py
+python3 build.py
 ```
 
 Needs Android SDK Platform 34, Build Tools 36.0.0 and JDK 21 (`ANDROID_HOME` / `JAVA_HOME` override the defaults). No downloads. Output: `.build/jev-probe.apk`, signed with a probe-only debug key. The build also runs the JVM policy tests (`test/dev/ryu/jevprobe/PolicyTest.java`).
@@ -19,8 +19,8 @@ Needs Android SDK Platform 34, Build Tools 36.0.0 and JDK 21 (`ANDROID_HOME` / `
 5. For Chrome 135+, also select the external autofill service in Chrome settings and serve the web fixtures:
 
 ```sh
-rtk proxy python3 -m http.server 8765 --bind 127.0.0.1 --directory fixture
-rtk proxy adb reverse tcp:8765 tcp:8765
+python3 -m http.server 8765 --bind 127.0.0.1 --directory fixture
+adb reverse tcp:8765 tcp:8765
 ```
 
 The probe only fills `com.android.chrome` / `http` / `localhost` and its own activity. This is a test-only restriction and is not a substitute for the product's HTTPS origin checks.
@@ -32,7 +32,7 @@ Endpoint `https://openrouter.ai/api/v1/systemone`, model `jev-latest`, authentic
 **From the Mac**: put exactly one line `OPENROUTER_API_KEY=<key>` (no quotes) in the root `.env`, mode 600, owned by you. Never paste the key into source, chat or shell commands. Then:
 
 ```sh
-rtk proxy python3 probe/live_check.py
+python3 probe/live_check.py
 ```
 
 It sends one synthetic field, validates the reply, and prints only PASS/FAIL. It checks file mode, owner and links and rejects redirects.
@@ -40,7 +40,7 @@ It sends one synthetic field, validates the reply, and prints only PASS/FAIL. It
 **On Android**: enter a key on the main screen to keep it in memory for five minutes (never on disk, backup or logs). On the emulator, the key can be handed over from `.env` through a 30-second adb socket with a random name; only the adb UID is accepted and the option is hidden on physical devices.
 
 ```sh
-PROBE_SERIAL=emulator-5556 PROBE_LIVE=1 rtk proxy python3 smoke.py   # add PROBE_CHROME=1 for the web form
+PROBE_SERIAL=emulator-5556 PROBE_LIVE=1 python3 smoke.py   # add PROBE_CHROME=1 for the web form
 ```
 
 Request rules: value-free field types only; labels are mapped to a fixed vocabulary (known notes such as "（必須）" are stripped first) and unknown text is dropped; password fields are classified on-device and never listed; only fields the local rules cannot decide (two or more candidates) are asked; replies are validated (field IDs, choices, probability distribution) and unknown or low-confidence answers stay unfilled.
@@ -71,8 +71,8 @@ Synthetic pages live in `fixture/patterns/`:
 | `autozip.html` / `autozipkey.html` | Postal-code autocompletion (reproduces the known conflict; currently FAIL) |
 
 ```sh
-PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 PROBE_PAGE=patterns/split.html rtk proxy python3 smoke.py
-PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 PROBE_PAGE=patterns/combined.html PROBE_FOCUS=お名前 rtk proxy python3 smoke.py
+PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 PROBE_PAGE=patterns/split.html python3 smoke.py
+PROBE_SERIAL=emulator-5554 PROBE_CHROME=1 PROBE_PAGE=patterns/combined.html PROBE_FOCUS=お名前 python3 smoke.py
 ```
 
 `PROBE_FOCUS` is the `<label>` text tapped first (default "姓"); use a text field, since a label wrapping a select opens the native picker. The dummy profile (Yokohama test address, 1990-04-05, etc.) is defined in `Profile.java` and is not real personal data.
